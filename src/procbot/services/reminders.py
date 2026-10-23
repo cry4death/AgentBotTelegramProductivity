@@ -134,6 +134,12 @@ def _override(task: Task, key: str) -> int | None:
 
 def resolve_pre_task_lead(ctx: AppContext, task: Task, profile: OwnerProfile | None) -> int | None:
     """Minutes before the planned start; None = no pre-task warning (open question 3)."""
+    if (
+        profile is not None
+        and profile.pre_task_lead_min == 0
+        and _override(task, "pre_task_lead_min") is None
+    ):
+        return None  # owner switched this reminder type off
     for value in (
         _override(task, "pre_task_lead_min"),
         profile.pre_task_lead_min if profile else None,
@@ -146,6 +152,12 @@ def resolve_pre_task_lead(ctx: AppContext, task: Task, profile: OwnerProfile | N
 
 def resolve_start_delay(ctx: AppContext, task: Task, profile: OwnerProfile | None) -> int | None:
     """Minutes after the planned start; None = no start-delay check (open question 3)."""
+    if (
+        profile is not None
+        and profile.start_delay_min == 0
+        and _override(task, "start_delay_min") is None
+    ):
+        return None  # owner switched this reminder type off
     for value in (
         _override(task, "start_delay_min"),
         profile.start_delay_min if profile else None,

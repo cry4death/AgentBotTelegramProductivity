@@ -326,7 +326,7 @@ class WorkSession(Base):
     break_minutes: Mapped[int | None]
     planned_minutes: Mapped[int | None]  # short start / free timer target
     intervention_id: Mapped[int | None] = mapped_column(
-        ForeignKey("interventions.id", ondelete="SET NULL")
+        ForeignKey("interventions.id", ondelete="SET NULL", use_alter=True)
     )
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]

@@ -35,7 +35,7 @@ from procbot.context import AppContext
 if TYPE_CHECKING:
     from aiogram import Bot
 from procbot.crypto import SecretBox, SecretBoxError
-from procbot.logging_setup import CorrelationMiddleware, correlation_scope, setup_logging
+from procbot.logging_setup import correlation_scope, setup_logging
 
 log = logging.getLogger("procbot.main")
 
@@ -233,12 +233,14 @@ async def run_bot(
         lease_taken = True
         mark_started(ctx)
 
+        from procbot.ai.gateway import build_gateway
+
+        ctx.ai = await build_gateway(ctx)  # missing/invalid ai.yaml -> works without AI
         await prepare(ctx)
 
         from procbot.services.scheduler import Scheduler
 
-        dp = build_dispatcher(ctx)
-        dp.update.outer_middleware(CorrelationMiddleware())
+        dp = build_dispatcher(ctx)  # CorrelationMiddleware is installed first inside
         runner = await start_http_server(ctx, env.http_host, env.http_port)
 
         stop = stop or asyncio.Event()
@@ -302,6 +304,11 @@ async def run_bot(
     finally:
         if runner is not None:
             await runner.cleanup()
+        if ctx is not None and ctx.ai is not None:
+            try:
+                await ctx.ai.aclose()
+            except Exception:
+                log.exception("cannot close AI gateway")
         if ctx is not None and lease_taken:
             try:
                 await release_poller_lease(ctx)

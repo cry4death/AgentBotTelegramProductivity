@@ -233,7 +233,7 @@ async def test_reminder_work_and_memory_toggles(ctx, dp, bot_and_session, profil
     assert p.memory_settings == {"hypotheses": False}
     assert p.autonomy_settings == {"reorder_tasks": False}
     await dp.feed_update(bot, callback_update(st("rl", "off")))
-    assert (await _p(ctx)).pre_task_lead_min is None
+    assert (await _p(ctx)).pre_task_lead_min == 0  # 0 = explicitly off
 
 
 async def test_settings_sections_render(ctx, dp, bot_and_session, profile):

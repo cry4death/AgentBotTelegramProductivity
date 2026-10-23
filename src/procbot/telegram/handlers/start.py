@@ -33,6 +33,7 @@ from procbot.services.preferences import (
     utc_offset_label,
 )
 from procbot.services.profile import get_or_create_profile, get_profile, update_profile
+from procbot.services.profile_hooks import after_profile_change
 from procbot.telegram.callbacks import OnboardingCb
 from procbot.telegram.keyboards import Menu, main_menu
 
@@ -191,6 +192,7 @@ async def apply_step(ctx: AppContext, step: str, changes: dict[str, Any]) -> boo
         if profile is None or profile.onboarding_step != step:
             return False
         await update_profile(s, now=now, **changes, onboarding_step=next_step(step))
+        await after_profile_change(s, ctx, changes.keys())
     return True
 
 

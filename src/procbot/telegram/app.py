@@ -8,6 +8,7 @@ from __future__ import annotations
 from aiogram import Dispatcher
 
 from procbot.context import AppContext
+from procbot.logging_setup import CorrelationMiddleware
 from procbot.telegram.handlers import (
     ai_keys,
     approvals,
@@ -55,6 +56,7 @@ ROUTER_MODULES = (
 def build_dispatcher(ctx: AppContext) -> Dispatcher:
     dp = Dispatcher(storage=SQLiteStorage(ctx))
     dp["ctx"] = ctx
+    dp.update.outer_middleware(CorrelationMiddleware())  # first: ids on every log line
     dp.update.outer_middleware(AuthMiddleware(ctx))
     dp.update.outer_middleware(DedupMiddleware(ctx))
     for module in ROUTER_MODULES:

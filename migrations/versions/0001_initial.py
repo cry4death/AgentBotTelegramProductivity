@@ -2,7 +2,7 @@
 
 Revision ID: 0001_initial
 Revises:
-Create Date: 2026-10-23 16:05:53.260817
+Create Date: 2026-10-23 16:29:52.078814
 
 """
 
@@ -193,33 +193,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_goals")),
     )
     op.create_table(
-        "interventions",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("task_id", sa.Integer(), nullable=True),
-        sa.Column("reminder_id", sa.Integer(), nullable=True),
-        sa.Column("kind", sa.String(length=32), nullable=False),
-        sa.Column("reason_category", sa.String(length=32), nullable=True),
-        sa.Column("reason_text", sa.Text(), nullable=True),
-        sa.Column("reason_origin", sa.String(length=16), nullable=True),
-        sa.Column("depth", sa.String(length=16), nullable=False),
-        sa.Column("suggestion", sa.Text(), nullable=True),
-        sa.Column("used_ai", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["reminder_id"],
-            ["reminder_schedule.id"],
-            name=op.f("fk_interventions_reminder_id_reminder_schedule"),
-            ondelete="SET NULL",
-        ),
-        sa.ForeignKeyConstraint(
-            ["task_id"],
-            ["tasks.id"],
-            name=op.f("fk_interventions_task_id_tasks"),
-            ondelete="SET NULL",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_interventions")),
-    )
-    op.create_table(
         "job_leases",
         sa.Column("name", sa.String(length=200), nullable=False),
         sa.Column("owner", sa.String(length=100), nullable=False),
@@ -296,90 +269,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("update_id", name=op.f("pk_processed_updates")),
     )
     op.create_table(
-        "reminder_schedule",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("category", sa.String(length=32), nullable=False),
-        sa.Column("due_at", sa.DateTime(), nullable=False),
-        sa.Column("stale_at", sa.DateTime(), nullable=True),
-        sa.Column("dedup_key", sa.String(length=200), nullable=False),
-        sa.Column("state", sa.String(length=16), nullable=False),
-        sa.Column("task_id", sa.Integer(), nullable=True),
-        sa.Column("session_id", sa.Integer(), nullable=True),
-        sa.Column("plan_id", sa.Integer(), nullable=True),
-        sa.Column("payload", sa.JSON(), nullable=False),
-        sa.Column("attempts", sa.Integer(), nullable=False),
-        sa.Column("reschedule_count", sa.Integer(), nullable=False),
-        sa.Column("last_reason", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["plan_id"],
-            ["daily_plans.id"],
-            name=op.f("fk_reminder_schedule_plan_id_daily_plans"),
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["session_id"],
-            ["work_sessions.id"],
-            name=op.f("fk_reminder_schedule_session_id_work_sessions"),
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["task_id"],
-            ["tasks.id"],
-            name=op.f("fk_reminder_schedule_task_id_tasks"),
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_reminder_schedule")),
-        sa.UniqueConstraint("dedup_key", name=op.f("uq_reminder_schedule_dedup_key")),
-    )
-    with op.batch_alter_table("reminder_schedule", schema=None) as batch_op:
-        batch_op.create_index("ix_reminder_due", ["state", "due_at"], unique=False)
-
-    op.create_table(
         "settings",
         sa.Column("key", sa.String(length=128), nullable=False),
         sa.Column("value", sa.JSON(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("key", name=op.f("pk_settings")),
     )
-    op.create_table(
-        "work_sessions",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("task_id", sa.Integer(), nullable=True),
-        sa.Column("mode", sa.String(length=16), nullable=False),
-        sa.Column("status", sa.String(length=16), nullable=False),
-        sa.Column("planned_start_at", sa.DateTime(), nullable=True),
-        sa.Column("started_at", sa.DateTime(), nullable=True),
-        sa.Column("ended_at", sa.DateTime(), nullable=True),
-        sa.Column("time_source", sa.String(length=16), nullable=False),
-        sa.Column("confidence", sa.String(length=16), nullable=True),
-        sa.Column("outcome", sa.String(length=16), nullable=True),
-        sa.Column("result_note", sa.Text(), nullable=True),
-        sa.Column("evidence", sa.Text(), nullable=True),
-        sa.Column("work_minutes", sa.Integer(), nullable=True),
-        sa.Column("break_minutes", sa.Integer(), nullable=True),
-        sa.Column("planned_minutes", sa.Integer(), nullable=True),
-        sa.Column("intervention_id", sa.Integer(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["intervention_id"],
-            ["interventions.id"],
-            name=op.f("fk_work_sessions_intervention_id_interventions"),
-            ondelete="SET NULL",
-        ),
-        sa.ForeignKeyConstraint(
-            ["task_id"],
-            ["tasks.id"],
-            name=op.f("fk_work_sessions_task_id_tasks"),
-            ondelete="SET NULL",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_work_sessions")),
-    )
-    with op.batch_alter_table("work_sessions", schema=None) as batch_op:
-        batch_op.create_index(batch_op.f("ix_work_sessions_task_id"), ["task_id"], unique=False)
-
     op.create_table(
         "ai_call_attempts",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -456,29 +351,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_habits")),
     )
     op.create_table(
-        "intervention_outcomes",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("intervention_id", sa.Integer(), nullable=False),
-        sa.Column("result", sa.String(length=16), nullable=False),
-        sa.Column("session_id", sa.Integer(), nullable=True),
-        sa.Column("time_source", sa.String(length=16), nullable=False),
-        sa.Column("note", sa.Text(), nullable=True),
-        sa.Column("recorded_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["intervention_id"],
-            ["interventions.id"],
-            name=op.f("fk_intervention_outcomes_intervention_id_interventions"),
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["session_id"],
-            ["work_sessions.id"],
-            name=op.f("fk_intervention_outcomes_session_id_work_sessions"),
-            ondelete="SET NULL",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_intervention_outcomes")),
-    )
-    op.create_table(
         "memory_sources",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("memory_item_id", sa.Integer(), nullable=False),
@@ -518,34 +390,6 @@ def upgrade() -> None:
             "summary_id", "memory_item_id", name=op.f("pk_memory_summary_items")
         ),
     )
-    op.create_table(
-        "outbound_messages",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("category", sa.String(length=32), nullable=False),
-        sa.Column("dedup_key", sa.String(length=200), nullable=False),
-        sa.Column("reminder_id", sa.Integer(), nullable=True),
-        sa.Column("counts_toward_limit", sa.Boolean(), nullable=False),
-        sa.Column("send_state", sa.String(length=16), nullable=False),
-        sa.Column("text", sa.Text(), nullable=False),
-        sa.Column("reply_markup", sa.JSON(), nullable=True),
-        sa.Column("telegram_message_id", sa.Integer(), nullable=True),
-        sa.Column("error", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("sent_at", sa.DateTime(), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["reminder_id"],
-            ["reminder_schedule.id"],
-            name=op.f("fk_outbound_messages_reminder_id_reminder_schedule"),
-            ondelete="SET NULL",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_outbound_messages")),
-        sa.UniqueConstraint("dedup_key", name=op.f("uq_outbound_messages_dedup_key")),
-    )
-    with op.batch_alter_table("outbound_messages", schema=None) as batch_op:
-        batch_op.create_index(
-            "ix_outbound_limit", ["counts_toward_limit", "created_at"], unique=False
-        )
-
     op.create_table(
         "pending_approvals",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -612,39 +456,6 @@ def upgrade() -> None:
             ["goal_id"], ["goals.id"], name=op.f("fk_projects_goal_id_goals"), ondelete="SET NULL"
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_projects")),
-    )
-    op.create_table(
-        "session_corrections",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("session_id", sa.Integer(), nullable=False),
-        sa.Column("field", sa.String(length=32), nullable=False),
-        sa.Column("old_value", sa.Text(), nullable=True),
-        sa.Column("new_value", sa.Text(), nullable=True),
-        sa.Column("actor", sa.String(length=16), nullable=False),
-        sa.Column("reason", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["session_id"],
-            ["work_sessions.id"],
-            name=op.f("fk_session_corrections_session_id_work_sessions"),
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_session_corrections")),
-    )
-    op.create_table(
-        "session_pauses",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("session_id", sa.Integer(), nullable=False),
-        sa.Column("started_at", sa.DateTime(), nullable=False),
-        sa.Column("ended_at", sa.DateTime(), nullable=True),
-        sa.Column("time_source", sa.String(length=16), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["session_id"],
-            ["work_sessions.id"],
-            name=op.f("fk_session_pauses_session_id_work_sessions"),
-            ondelete="CASCADE",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_session_pauses")),
     )
     op.create_table(
         "habit_occurrences",
@@ -761,34 +572,6 @@ def upgrade() -> None:
         )
 
     op.create_table(
-        "behavior_observations",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("kind", sa.String(length=64), nullable=False),
-        sa.Column("task_id", sa.Integer(), nullable=True),
-        sa.Column("session_id", sa.Integer(), nullable=True),
-        sa.Column("value", sa.JSON(), nullable=False),
-        sa.Column("time_source", sa.String(length=16), nullable=False),
-        sa.Column("observed_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["session_id"],
-            ["work_sessions.id"],
-            name=op.f("fk_behavior_observations_session_id_work_sessions"),
-            ondelete="SET NULL",
-        ),
-        sa.ForeignKeyConstraint(
-            ["task_id"],
-            ["tasks.id"],
-            name=op.f("fk_behavior_observations_task_id_tasks"),
-            ondelete="SET NULL",
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_behavior_observations")),
-    )
-    with op.batch_alter_table("behavior_observations", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_behavior_observations_observed_at"), ["observed_at"], unique=False
-        )
-
-    op.create_table(
         "plan_items",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("revision_id", sa.Integer(), nullable=False),
@@ -842,6 +625,72 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f("ix_task_events_task_id"), ["task_id"], unique=False)
 
     op.create_table(
+        "work_sessions",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("task_id", sa.Integer(), nullable=True),
+        sa.Column("mode", sa.String(length=16), nullable=False),
+        sa.Column("status", sa.String(length=16), nullable=False),
+        sa.Column("planned_start_at", sa.DateTime(), nullable=True),
+        sa.Column("started_at", sa.DateTime(), nullable=True),
+        sa.Column("ended_at", sa.DateTime(), nullable=True),
+        sa.Column("time_source", sa.String(length=16), nullable=False),
+        sa.Column("confidence", sa.String(length=16), nullable=True),
+        sa.Column("outcome", sa.String(length=16), nullable=True),
+        sa.Column("result_note", sa.Text(), nullable=True),
+        sa.Column("evidence", sa.Text(), nullable=True),
+        sa.Column("work_minutes", sa.Integer(), nullable=True),
+        sa.Column("break_minutes", sa.Integer(), nullable=True),
+        sa.Column("planned_minutes", sa.Integer(), nullable=True),
+        sa.Column("intervention_id", sa.Integer(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["intervention_id"],
+            ["interventions.id"],
+            name=op.f("fk_work_sessions_intervention_id_interventions"),
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        sa.ForeignKeyConstraint(
+            ["task_id"],
+            ["tasks.id"],
+            name=op.f("fk_work_sessions_task_id_tasks"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_work_sessions")),
+    )
+    with op.batch_alter_table("work_sessions", schema=None) as batch_op:
+        batch_op.create_index(batch_op.f("ix_work_sessions_task_id"), ["task_id"], unique=False)
+
+    op.create_table(
+        "behavior_observations",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("kind", sa.String(length=64), nullable=False),
+        sa.Column("task_id", sa.Integer(), nullable=True),
+        sa.Column("session_id", sa.Integer(), nullable=True),
+        sa.Column("value", sa.JSON(), nullable=False),
+        sa.Column("time_source", sa.String(length=16), nullable=False),
+        sa.Column("observed_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["session_id"],
+            ["work_sessions.id"],
+            name=op.f("fk_behavior_observations_session_id_work_sessions"),
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["task_id"],
+            ["tasks.id"],
+            name=op.f("fk_behavior_observations_task_id_tasks"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_behavior_observations")),
+    )
+    with op.batch_alter_table("behavior_observations", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_behavior_observations_observed_at"), ["observed_at"], unique=False
+        )
+
+    op.create_table(
         "calendar_event_links",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("operation_key", sa.String(length=200), nullable=False),
@@ -875,12 +724,184 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_calendar_event_links")),
         sa.UniqueConstraint("operation_key", name=op.f("uq_calendar_event_links_operation_key")),
     )
+    op.create_table(
+        "reminder_schedule",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("category", sa.String(length=32), nullable=False),
+        sa.Column("due_at", sa.DateTime(), nullable=False),
+        sa.Column("stale_at", sa.DateTime(), nullable=True),
+        sa.Column("dedup_key", sa.String(length=200), nullable=False),
+        sa.Column("state", sa.String(length=16), nullable=False),
+        sa.Column("task_id", sa.Integer(), nullable=True),
+        sa.Column("session_id", sa.Integer(), nullable=True),
+        sa.Column("plan_id", sa.Integer(), nullable=True),
+        sa.Column("payload", sa.JSON(), nullable=False),
+        sa.Column("attempts", sa.Integer(), nullable=False),
+        sa.Column("reschedule_count", sa.Integer(), nullable=False),
+        sa.Column("last_reason", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["plan_id"],
+            ["daily_plans.id"],
+            name=op.f("fk_reminder_schedule_plan_id_daily_plans"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["session_id"],
+            ["work_sessions.id"],
+            name=op.f("fk_reminder_schedule_session_id_work_sessions"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["task_id"],
+            ["tasks.id"],
+            name=op.f("fk_reminder_schedule_task_id_tasks"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_reminder_schedule")),
+        sa.UniqueConstraint("dedup_key", name=op.f("uq_reminder_schedule_dedup_key")),
+    )
+    with op.batch_alter_table("reminder_schedule", schema=None) as batch_op:
+        batch_op.create_index("ix_reminder_due", ["state", "due_at"], unique=False)
+
+    op.create_table(
+        "session_corrections",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("session_id", sa.Integer(), nullable=False),
+        sa.Column("field", sa.String(length=32), nullable=False),
+        sa.Column("old_value", sa.Text(), nullable=True),
+        sa.Column("new_value", sa.Text(), nullable=True),
+        sa.Column("actor", sa.String(length=16), nullable=False),
+        sa.Column("reason", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["session_id"],
+            ["work_sessions.id"],
+            name=op.f("fk_session_corrections_session_id_work_sessions"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_session_corrections")),
+    )
+    op.create_table(
+        "session_pauses",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("session_id", sa.Integer(), nullable=False),
+        sa.Column("started_at", sa.DateTime(), nullable=False),
+        sa.Column("ended_at", sa.DateTime(), nullable=True),
+        sa.Column("time_source", sa.String(length=16), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["session_id"],
+            ["work_sessions.id"],
+            name=op.f("fk_session_pauses_session_id_work_sessions"),
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_session_pauses")),
+    )
+    op.create_table(
+        "interventions",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("task_id", sa.Integer(), nullable=True),
+        sa.Column("reminder_id", sa.Integer(), nullable=True),
+        sa.Column("kind", sa.String(length=32), nullable=False),
+        sa.Column("reason_category", sa.String(length=32), nullable=True),
+        sa.Column("reason_text", sa.Text(), nullable=True),
+        sa.Column("reason_origin", sa.String(length=16), nullable=True),
+        sa.Column("depth", sa.String(length=16), nullable=False),
+        sa.Column("suggestion", sa.Text(), nullable=True),
+        sa.Column("used_ai", sa.Boolean(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["reminder_id"],
+            ["reminder_schedule.id"],
+            name=op.f("fk_interventions_reminder_id_reminder_schedule"),
+            ondelete="SET NULL",
+        ),
+        sa.ForeignKeyConstraint(
+            ["task_id"],
+            ["tasks.id"],
+            name=op.f("fk_interventions_task_id_tasks"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_interventions")),
+    )
+    op.create_table(
+        "outbound_messages",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("category", sa.String(length=32), nullable=False),
+        sa.Column("dedup_key", sa.String(length=200), nullable=False),
+        sa.Column("reminder_id", sa.Integer(), nullable=True),
+        sa.Column("counts_toward_limit", sa.Boolean(), nullable=False),
+        sa.Column("send_state", sa.String(length=16), nullable=False),
+        sa.Column("text", sa.Text(), nullable=False),
+        sa.Column("reply_markup", sa.JSON(), nullable=True),
+        sa.Column("telegram_message_id", sa.Integer(), nullable=True),
+        sa.Column("error", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("sent_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["reminder_id"],
+            ["reminder_schedule.id"],
+            name=op.f("fk_outbound_messages_reminder_id_reminder_schedule"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_outbound_messages")),
+        sa.UniqueConstraint("dedup_key", name=op.f("uq_outbound_messages_dedup_key")),
+    )
+    with op.batch_alter_table("outbound_messages", schema=None) as batch_op:
+        batch_op.create_index(
+            "ix_outbound_limit", ["counts_toward_limit", "created_at"], unique=False
+        )
+
+    op.create_table(
+        "intervention_outcomes",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("intervention_id", sa.Integer(), nullable=False),
+        sa.Column("result", sa.String(length=16), nullable=False),
+        sa.Column("session_id", sa.Integer(), nullable=True),
+        sa.Column("time_source", sa.String(length=16), nullable=False),
+        sa.Column("note", sa.Text(), nullable=True),
+        sa.Column("recorded_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["intervention_id"],
+            ["interventions.id"],
+            name=op.f("fk_intervention_outcomes_intervention_id_interventions"),
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["session_id"],
+            ["work_sessions.id"],
+            name=op.f("fk_intervention_outcomes_session_id_work_sessions"),
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_intervention_outcomes")),
+    )
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table("intervention_outcomes")
+    with op.batch_alter_table("outbound_messages", schema=None) as batch_op:
+        batch_op.drop_index("ix_outbound_limit")
+
+    op.drop_table("outbound_messages")
+    op.drop_table("interventions")
+    op.drop_table("session_pauses")
+    op.drop_table("session_corrections")
+    with op.batch_alter_table("reminder_schedule", schema=None) as batch_op:
+        batch_op.drop_index("ix_reminder_due")
+
+    op.drop_table("reminder_schedule")
     op.drop_table("calendar_event_links")
+    with op.batch_alter_table("behavior_observations", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_behavior_observations_observed_at"))
+
+    op.drop_table("behavior_observations")
+    with op.batch_alter_table("work_sessions", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_work_sessions_task_id"))
+
+    op.drop_table("work_sessions")
     with op.batch_alter_table("task_events", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_task_events_task_id"))
 
@@ -889,10 +910,6 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f("ix_plan_items_revision_id"))
 
     op.drop_table("plan_items")
-    with op.batch_alter_table("behavior_observations", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_behavior_observations_observed_at"))
-
-    op.drop_table("behavior_observations")
     with op.batch_alter_table("tasks", schema=None) as batch_op:
         batch_op.drop_index("ix_tasks_status_planned")
         batch_op.drop_index("ix_tasks_parent")
@@ -900,24 +917,17 @@ def downgrade() -> None:
     op.drop_table("tasks")
     op.drop_table("milestones")
     op.drop_table("habit_occurrences")
-    op.drop_table("session_pauses")
-    op.drop_table("session_corrections")
     op.drop_table("projects")
     op.drop_table("plan_revisions")
     with op.batch_alter_table("pending_approvals", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_pending_approvals_group_key"))
 
     op.drop_table("pending_approvals")
-    with op.batch_alter_table("outbound_messages", schema=None) as batch_op:
-        batch_op.drop_index("ix_outbound_limit")
-
-    op.drop_table("outbound_messages")
     op.drop_table("memory_summary_items")
     with op.batch_alter_table("memory_sources", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_memory_sources_memory_item_id"))
 
     op.drop_table("memory_sources")
-    op.drop_table("intervention_outcomes")
     op.drop_table("habits")
     with op.batch_alter_table("calendar_event_cache", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_calendar_event_cache_start_at"))
@@ -928,22 +938,13 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f("ix_ai_call_attempts_call_id"))
 
     op.drop_table("ai_call_attempts")
-    with op.batch_alter_table("work_sessions", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_work_sessions_task_id"))
-
-    op.drop_table("work_sessions")
     op.drop_table("settings")
-    with op.batch_alter_table("reminder_schedule", schema=None) as batch_op:
-        batch_op.drop_index("ix_reminder_due")
-
-    op.drop_table("reminder_schedule")
     op.drop_table("processed_updates")
     op.drop_table("owner_profile")
     op.drop_table("operation_keys")
     op.drop_table("memory_summaries")
     op.drop_table("memory_items")
     op.drop_table("job_leases")
-    op.drop_table("interventions")
     op.drop_table("goals")
     op.drop_table("daily_plans")
     op.drop_table("conversation_states")

@@ -47,6 +47,7 @@ from procbot.services.preferences import (
     utc_offset_label,
 )
 from procbot.services.profile import get_or_create_profile, get_profile, update_profile
+from procbot.services.profile_hooks import after_profile_change
 from procbot.telegram.callbacks import SettingsCb
 from procbot.telegram.keyboards import Menu
 from procbot.timeutil import fmt_local
@@ -173,7 +174,9 @@ async def save(ctx: AppContext, **changes: Any) -> OwnerProfile:
     async with ctx.db.transaction() as s:
         if await get_profile(s) is None:
             await get_or_create_profile(s, telegram_user_id=ctx.owner_id, now=ctx.clock.now())
-        return await update_profile(s, now=ctx.clock.now(), **changes)
+        profile = await update_profile(s, now=ctx.clock.now(), **changes)
+        await after_profile_change(s, ctx, changes.keys())
+        return profile
 
 
 async def _show(target: Message, text: str, kb: InlineKeyboardMarkup | None, *, edit: bool) -> None:
@@ -593,6 +596,8 @@ async def apply_action(ctx: AppContext, p: OwnerProfile, action: str, arg: str) 
         ok, v = _int_or_none(arg, picks)
         if not ok:
             return None
+        if v is None:
+            v = 0  # 0 = explicitly off for the owner (None would fall back to app.yaml)
         await save(ctx, **{"pre_task_lead_min" if action == "rl" else "start_delay_min": v})
         return "remind"
     if action in ("pw", "pb", "ss"):
