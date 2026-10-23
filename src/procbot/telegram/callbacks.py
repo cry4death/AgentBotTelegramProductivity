@@ -52,10 +52,11 @@ class OnboardingCb(CallbackData, prefix="ob"):  # [handlers.start]
 
 
 class InterventionCb(CallbackData, prefix="iv"):  # [handlers.procrastination]
-    action: str  # accept / other / deep / outcome
+    action: str  # reason / deep / opt / refute / confirm / end / split / step / outcome
     intervention_id: int = 0
     task_id: int = 0
     arg: str = ""
+    reminder_id: int = 0
 
 
 class HabitCb(CallbackData, prefix="hb"):  # [handlers.habits]

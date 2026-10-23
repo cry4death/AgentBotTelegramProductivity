@@ -82,9 +82,23 @@ class DedupMiddleware(BaseMiddleware):
         redacted: set[int] = self.ctx.registry.get("redacted_update_ids", set())
         redact = event.update_id in redacted
         redacted.discard(event.update_id)
+        # Voice handlers leave the transcript, chat handlers their text replies
+        # (AI chat answers), so the dialogue history keeps both, in order.
+        transcript = self.ctx.registry.get("update_transcripts", {}).pop(event.update_id, None)
+        replies = self.ctx.registry.get("update_replies", {}).pop(event.update_id, [])
         async with self.ctx.db.transaction() as s:
             await mark_processed(s, event.update_id, now)
-            await _log_incoming(s, event, now, redact=redact)
+            await _log_incoming(s, event, now, redact=redact, transcript=transcript)
+            for reply in replies:
+                s.add(
+                    ConversationMessage(
+                        direction="out",
+                        kind="text",
+                        update_id=event.update_id,
+                        text=reply,
+                        created_at=now,
+                    )
+                )
         return result
 
 
@@ -97,11 +111,17 @@ async def mark_processed(session: Any, update_id: int, now: Any) -> None:
     await session.execute(stmt)
 
 
-async def _log_incoming(session: Any, update: Update, now: Any, *, redact: bool = False) -> None:
+async def _log_incoming(
+    session: Any, update: Update, now: Any, *, redact: bool = False, transcript: str | None = None
+) -> None:
     """Conversation history (FR-12). Retention is open question 8: kept until deleted."""
     if update.message is not None:
         m = update.message
-        kind = "voice" if m.voice else ("command" if (m.text or "").startswith("/") else "text")
+        kind = (
+            "voice"
+            if (m.voice or m.audio)
+            else ("command" if (m.text or "").startswith("/") else "text")
+        )
         session.add(
             ConversationMessage(
                 direction="in",
@@ -109,6 +129,7 @@ async def _log_incoming(session: Any, update: Update, now: Any, *, redact: bool 
                 telegram_message_id=m.message_id,
                 update_id=update.update_id,
                 text="[скрыто]" if redact else m.text,
+                transcript=None if redact else transcript,
                 created_at=now,
             )
         )

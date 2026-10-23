@@ -871,14 +871,88 @@ async def _retro_start(event: Message | CallbackQuery, ctx: AppContext, state: F
     async with ctx.db.transaction() as s:
         tasks = await _pick_tasks(s, ctx)
     await state.set_state(RetroStates.task)
+    await state.update_data(retro={})
     rows = [[_btn(_short(t.title), SessionCb(action="rtask", task_id=t.id))] for t in tasks]
     rows.append([_btn("Без задачи", SessionCb(action="rtask", task_id=0))])
     await _send(event, "🕓 Отметим работу задним числом. Над чем работал?", _kb(*rows))
 
 
+async def start_retro_prefilled(
+    message: Message,
+    ctx: AppContext,
+    state: FSMContext,
+    *,
+    interval: svc.ParsedInterval | None,
+    task_id: int | None = None,
+) -> None:
+    """Entry point for other input handlers (AI capture, scenario F): the same
+    retro FSM, with the interval understood from free text already filled in.
+    The owner still sees the interval, picks the task when it is unknown, and
+    answers breaks and confidence; "отмена" drops everything."""
+    await _clear_if_mine(state)
+    data: dict[str, Any] = {"prefill": True}
+    if interval is not None:
+        data["source"] = str(interval.time_source)
+        if interval.start is not None and interval.end is not None:
+            data["start"], data["end"] = interval.start.isoformat(), interval.end.isoformat()
+        elif interval.duration is not None:
+            data["duration_min"] = interval.duration.total_seconds() / 60
+    async with ctx.db.transaction() as s:
+        tz = await _tz(s)
+        task = await s.get(Task, task_id) if task_id else None
+        tasks = await _pick_tasks(s, ctx) if task is None else []
+    head = "🕓 Отметим работу задним числом."
+    if data.get("start"):
+        start, end = datetime.fromisoformat(data["start"]), datetime.fromisoformat(data["end"])
+        head += f"\nПонял так: {_fmt_range(start, end, tz)}. Если неверно — напиши «отмена»."
+    elif data.get("duration_min"):
+        head += f"\nПонял так: {svc.fmt_minutes(data['duration_min'])}."
+    if task is None:
+        await state.set_state(RetroStates.task)
+        await state.update_data(retro=data)
+        rows = [[_btn(_short(t.title), SessionCb(action="rtask", task_id=t.id))] for t in tasks]
+        rows.append([_btn("Без задачи", SessionCb(action="rtask", task_id=0))])
+        await _send(message, head + "\nНад чем работал?", _kb(*rows))
+        return
+    data["task_id"] = task.id
+    await state.update_data(retro=data)
+    await _send(message, head + f"\nЗадача: «{task.title}».")
+    await _retro_continue(message, state, data)
+
+
+async def _retro_continue(
+    event: Message | CallbackQuery, state: FSMContext, data: dict[str, Any]
+) -> None:
+    """Next retro question after the task is known (interval may be prefilled)."""
+    if data.get("start") and data.get("end"):
+        await _ask_breaks(event, state)
+        return
+    if data.get("duration_min"):
+        await state.set_state(RetroStates.end_time)
+        await _send(
+            event,
+            f"Длительность: {svc.fmt_minutes(data['duration_min'])}. Во сколько примерно "
+            "закончил? Например «12:30».",
+            _kb([_btn("Только что", SessionCb(action="rend"))]),
+        )
+        return
+    await state.set_state(RetroStates.interval)
+    await _send(
+        event,
+        "Когда работал? Например: «14:00-16:30», «с 14 до 16», «вчера 10-12» — "
+        "или длительность: «2 часа», «примерно час».",
+    )
+
+
 @router.callback_query(SessionCb.filter(F.action == "rtask"))
 async def on_retro_task(cb: CallbackQuery, callback_data: SessionCb, state: FSMContext) -> None:
     await _done(cb)
+    prefilled = await _retro_data(state)
+    if prefilled.get("prefill") and await state.get_state() == RetroStates.task.state:
+        prefilled["task_id"] = callback_data.task_id or None
+        await state.update_data(retro=prefilled)
+        await _retro_continue(cb, state, prefilled)
+        return
     await state.set_state(RetroStates.interval)
     await state.update_data(retro={"task_id": callback_data.task_id or None})
     await _send(

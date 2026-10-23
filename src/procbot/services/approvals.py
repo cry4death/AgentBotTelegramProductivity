@@ -168,6 +168,22 @@ async def update_pending_payload(
     return row
 
 
+async def add_diff_notes(session: AsyncSession, approval_id: int, notes: Sequence[str]) -> None:
+    """Append informational lines (e.g. "❓ Неясно: срок") to a pending card's diff.
+
+    Display only: the action payload is untouched. Idempotent (a line already
+    present is not added twice); resolved cards are left as they are."""
+    row = await session.get(PendingApproval, approval_id)
+    if row is None or row.status != ApprovalStatus.PENDING or not notes:
+        return
+    diff = dict(row.diff or {})
+    lines = list(diff.get("lines") or [])
+    added = [n for n in notes if n and n not in lines]
+    if added:
+        diff["lines"] = lines + added
+        row.diff = diff
+
+
 # --------------------------------------------------------------------------- resolve
 
 

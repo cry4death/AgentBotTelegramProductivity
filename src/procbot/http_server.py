@@ -70,10 +70,24 @@ async def healthz(request: web.Request) -> web.Response:
     return web.json_response(body, status=200 if ok else 503)
 
 
+async def google_oauth_callback(request: web.Request) -> web.Response:
+    """Google OAuth redirect target (services.calendar_oauth, WEB mode)."""
+    from procbot.services.calendar_oauth import handle_web_callback
+
+    status, page = await handle_web_callback(request.app[CTX_KEY], dict(request.query))
+    return web.Response(
+        status=status,
+        text=page,
+        content_type="text/html",
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
+
+
 def build_app(ctx: AppContext) -> web.Application:
     app = web.Application()
     app[CTX_KEY] = ctx
     app.router.add_get("/healthz", healthz)
+    app.router.add_get("/oauth/google/callback", google_oauth_callback)  # stage C calendar
     return app
 
 
