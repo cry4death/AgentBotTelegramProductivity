@@ -88,6 +88,9 @@ def build_app(ctx: AppContext) -> web.Application:
     app[CTX_KEY] = ctx
     app.router.add_get("/healthz", healthz)
     app.router.add_get("/oauth/google/callback", google_oauth_callback)  # stage C calendar
+    from procbot.miniapp.api import add_routes  # stage D
+
+    add_routes(app, CTX_KEY)
     return app
 
 

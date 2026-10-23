@@ -149,3 +149,11 @@ uv run procbot run      # или просто: uv run procbot
 `GET /healthz` → `{"status": "ok", "version": ..., "uptime_seconds": ..., "db": true}`,
 HTTP 503 при недоступной базе. Внешнее оповещение о падении — открытый вопрос № 10:
 эндпоинт готов, сам бот никуда не сообщает.
+
+## Mini App (этап D, минимальная версия)
+
+Страница `/miniapp` отдаётся тем же HTTP-сервером, что и `/healthz`. Нужен публичный
+HTTPS-адрес (обратный прокси до `HTTP_PORT`). В @BotFather: Bot Settings → Menu Button →
+указать `https://<ваш-домен>/miniapp`. API принимает только подписанный Telegram
+`initData` владельца (заголовок `Authorization: tma …`, срок 24 часа).
+Сейчас есть только «Мой день» и отметка «Готово»; остальное делается в чате.

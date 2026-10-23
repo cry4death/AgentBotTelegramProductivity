@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мой день</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 16px; font: 15px/1.4 system-ui, sans-serif;
+    background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #111);
+  }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  h2 { font-size: 14px; margin: 20px 0 8px; color: var(--tg-theme-hint-color, #777); text-transform: uppercase; }
+  .task { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0;
+          border-bottom: 1px solid var(--tg-theme-secondary-bg-color, #eee); }
+  .task .body { flex: 1; min-width: 0; }
+  .meta, .step { font-size: 13px; color: var(--tg-theme-hint-color, #777); }
+  button { border: 0; border-radius: 8px; padding: 6px 10px; font: inherit;
+           background: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, #fff); }
+  .done .title { text-decoration: line-through; opacity: .6; }
+  #msg { color: var(--tg-theme-hint-color, #777); }
+</style>
+</head>
+<body>
+<h1 id="head">Мой день</h1>
+<div id="msg">Загружаю…</div>
+<div id="list"></div>
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+const auth = { Authorization: "tma " + (tg ? tg.initData : "") };
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+async function load() {
+  const msg = document.getElementById("msg"), list = document.getElementById("list");
+  let data;
+  try {
+    const r = await fetch("api/day", { headers: auth });
+    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "Откройте приложение из Telegram." : "Ошибка " + r.status);
+    data = await r.json();
+  } catch (e) { msg.textContent = e.message; return; }
+  document.getElementById("head").textContent = "Мой день · " + data.day.split("-").reverse().slice(0, 2).join(".");
+  list.replaceChildren();
+  msg.textContent = data.sections.length ? "" : "На сегодня задач нет.";
+  for (const sec of data.sections) {
+    list.append(el("h2", null, sec.title));
+    for (const t of sec.tasks) {
+      const row = el("div", "task"), body = el("div", "body");
+      body.append(el("div", "title", t.title));
+      const meta = [t.start && "в " + t.start, t.due && "срок " + t.due, t.estimate_min && "~" + t.estimate_min + " мин"].filter(Boolean).join(" · ");
+      if (meta) body.append(el("div", "meta", meta));
+      if (t.next_step) body.append(el("div", "step", "Следующий шаг: " + t.next_step));
+      const btn = el("button", null, "Готово");
+      btn.onclick = async () => {
+        btn.disabled = true;
+        const r = await fetch("api/tasks/" + t.id + "/done", { method: "POST", headers: auth });
+        if (r.ok) { row.classList.add("done"); btn.remove(); } else { btn.disabled = false; }
+      };
+      row.append(body, btn);
+      list.append(row);
+    }
+  }
+  if (data.backlog_count) list.append(el("p", "meta", "В бэклоге: " + data.backlog_count));
+}
+load();
+</script>
+</body>
+</html>
