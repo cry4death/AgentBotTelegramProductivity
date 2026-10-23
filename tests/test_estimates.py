@@ -95,9 +95,7 @@ async def test_retro_time_weighs_less_and_is_flagged(ctx, profile) -> None:
     assert cal.mostly_approximate
     assert "неточно" in cal.explanation()
     # same ratios with exact time would correct much more strongly
-    exact = est.factor_from(
-        [est.Sample(1, 30, 90, 1.0, True, None, None, "user")] * 2
-    )[0]
+    exact = est.factor_from([est.Sample(1, 30, 90, 1.0, True, None, None, "user")] * 2)[0]
     assert cal.factor < exact
 
 
