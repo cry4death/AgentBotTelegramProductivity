@@ -39,7 +39,9 @@ async def test_zero_lead_means_off_even_if_app_yaml_has_default(ctx, profile) ->
     ctx.config.reminders.pre_task_lead_minutes = 10
     now = ctx.clock.now()
     async with ctx.db.transaction() as s:
-        t = Task(title="x", planned_start_at=now + timedelta(hours=2), created_at=now, updated_at=now)
+        t = Task(
+            title="x", planned_start_at=now + timedelta(hours=2), created_at=now, updated_at=now
+        )
         s.add(t)
         await s.flush()
         await sync_task_reminders(s, ctx, t)
