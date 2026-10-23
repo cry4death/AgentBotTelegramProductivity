@@ -863,44 +863,20 @@ async def _effectiveness(s: AsyncSession, ctx: AppContext, p: Period) -> Directi
 # --------------------------------------------------------------------------- 5. goals
 
 
-async def _external_goal_lines(s: AsyncSession, ctx: AppContext, p: Period) -> list[str] | None:
-    """Use the goals/habits services' helpers when they exist (stage C)."""
-    lines: list[str] = []
-    found = False
-    for mod_name, name in (
-        ("procbot.services.goals", "goal_progress"),
-        ("procbot.services.habits", "habit_stability"),
-    ):
-        try:
-            mod = importlib.import_module(mod_name)
-        except ImportError:
-            continue
-        fn = getattr(mod, name, None)
-        if fn is None:
-            continue
-        try:
-            res = await fn(s, ctx, start=p.start, end=p.end)
-        except TypeError:
-            continue
-        found = True
-        if isinstance(res, str):
-            lines.append(res)
-        elif isinstance(res, list | tuple):
-            lines += [str(x) for x in res]
-    return lines if found else None
+def _optional(module: str) -> Any | None:
+    """The goals/habits services (stage C) are used when present."""
+    try:
+        return importlib.import_module(module)
+    except ImportError:  # pragma: no cover - module not built
+        return None
 
 
-async def _goals(s: AsyncSession, ctx: AppContext, p: Period) -> Direction:
-    d = Direction("goals", DIRECTION_TITLES["goals"])
-    now = ctx.clock.now()
-    goals = list(
-        (await s.execute(select(Goal).where(Goal.status == EntityStatus.ACTIVE).order_by(Goal.id)))
-        .scalars()
-        .all()
-    )
-    stats = await session_stats(s, start=p.start, end=p.end, now=now)
-    goal_rows: list[dict[str, Any]] = []
-    for g in goals[:10]:
+async def _goal_rows_fallback(
+    s: AsyncSession, ctx: AppContext, p: Period, d: Direction, goals: Sequence[Goal]
+) -> list[dict[str, Any]]:
+    stats = await session_stats(s, start=p.start, end=p.end, now=ctx.clock.now())
+    rows: list[dict[str, Any]] = []
+    for g in goals:
         ms = list(
             (await s.execute(select(Milestone).where(Milestone.goal_id == g.id))).scalars().all()
         )
@@ -918,18 +894,16 @@ async def _goals(s: AsyncSession, ctx: AppContext, p: Period) -> Direction:
         retro = round(
             sum(i.net_minutes for i in stats.items if i.task_id in ids and not i.is_exact)
         )
-        parts = []
-        if ms:
-            parts.append(f"этапы {ms_done}/{len(ms)}")
+        parts = [f"этапы {ms_done}/{len(ms)}"] if ms else []
         parts.append(f"задач завершено за период: {done_now}")
         if exact:
             parts.append(f"{exact} мин по таймеру")
         if retro:
-            parts.append(f"{retro} мин задним числом (приблизительно)")
+            parts.append(f"~{retro} мин задним числом (приблизительно)")
         if not ms and not tasks:
             parts = ["к цели пока не привязаны задачи и этапы"]
         d.details.append(f"«{g.title}»: " + ", ".join(parts) + ".")
-        goal_rows.append(
+        rows.append(
             {
                 "goal": g.title,
                 "milestones_done": ms_done,
@@ -939,22 +913,76 @@ async def _goals(s: AsyncSession, ctx: AppContext, p: Period) -> Direction:
                 "minutes_retro_approximate": retro,
             }
         )
-    if len(goals) > 10:
-        d.details.append(f"…и ещё целей: {len(goals) - 10}.")
-    if goals:
-        d.metrics.append(Metric("goals_active", "Активных целей", len(goals)))
+    return rows
+
+
+async def _goals(s: AsyncSession, ctx: AppContext, p: Period) -> Direction:
+    d = Direction("goals", DIRECTION_TITLES["goals"])
+    goals = list(
+        (await s.execute(select(Goal).where(Goal.status == EntityStatus.ACTIVE).order_by(Goal.id)))
+        .scalars()
+        .all()
+    )
+    shown = goals[:10]
+    gmod = _optional("procbot.services.goals")
+    goal_data: list[dict[str, Any]] = []
+    alignment: dict[str, Any] | None = None
+    moved = 0
+    has_retro = False
+    if gmod is not None and all(
+        hasattr(gmod, n) for n in ("goal_progress", "progress_short", "goal_alignment")
+    ):
+        for g in shown:
+            prog = await gmod.goal_progress(s, ctx, g.id)
+            d.details.append(f"«{g.title}»: {gmod.progress_short(prog)}.")
+            goal_data.append(prog.as_dict())
+        if goals:
+            rep = await gmod.goal_alignment(s, ctx, p.start, p.end)
+            alignment = rep.as_dict()
+            moved = sum(1 for a in rep.goals if a.tasks_done or a.minutes_exact or a.minutes_other)
+            has_retro = any(a.minutes_other for a in rep.goals)
+            if hasattr(gmod, "alignment_lines"):
+                d.details += list(gmod.alignment_lines(rep))
+    else:
+        goal_data = await _goal_rows_fallback(s, ctx, p, d, shown)
         moved = sum(
             1
-            for r in goal_rows
+            for r in goal_data
             if r["tasks_done_in_period"] or r["minutes_exact"] or r["minutes_retro_approximate"]
         )
-        d.metrics.append(Metric("goals_moved", "Целей с продвижением за период", moved))
-    # habits (supporting data, not a separate mandatory section)
+        has_retro = any(r["minutes_retro_approximate"] for r in goal_data)
+    if len(goals) > len(shown):
+        d.details.append(f"…и ещё целей: {len(goals) - len(shown)}.")
+    if goals:
+        d.metrics.append(Metric("goals_active", "Активных целей", len(goals)))
+        d.metrics.append(
+            Metric(
+                "goals_moved",
+                "Целей с продвижением за период",
+                moved,
+                quality=Quality.MIXED if has_retro else Quality.EXACT,
+                note="часть времени отмечена задним числом" if has_retro else None,
+            )
+        )
+    # habits: supporting data for the goals direction (not a separate section)
+    habit_data: dict[str, Any] = {}
+    hmod = _optional("procbot.services.habits")
     habits = list(
-        (await s.execute(select(Habit).where(Habit.status == EntityStatus.ACTIVE))).scalars().all()
-    )
-    habit_rows: dict[str, dict[str, int]] = {}
-    if habits:
+        (
+            await s.execute(
+                select(Habit).where(Habit.status == EntityStatus.ACTIVE).order_by(Habit.id)
+            )
+        )
+        .scalars()
+        .all()
+    )[:5]
+    if habits and hmod is not None and hasattr(hmod, "habit_stability"):
+        for h in habits:
+            st = await hmod.habit_stability(s, ctx, h.id, days=p.days, end=p.last_day)
+            text = hmod.stability_text(st) if hasattr(hmod, "stability_text") else ""
+            d.details.append(f"Привычка «{h.title}»: {text}.")
+            habit_data[h.title] = st.as_dict()
+    elif habits:
         occ = (
             (
                 await s.execute(
@@ -967,19 +995,16 @@ async def _goals(s: AsyncSession, ctx: AppContext, p: Period) -> Direction:
             .scalars()
             .all()
         )
-        for h in habits[:5]:
+        for h in habits:
             c = Counter(o.status for o in occ if o.habit_id == h.id)
-            habit_rows[h.title] = dict(c)
+            habit_data[h.title] = dict(c)
             if c:
                 d.details.append(
                     f"Привычка «{h.title}»: выполнено {c.get('done', 0)}, частично "
                     f"{c.get('partial', 0)}, пропущено {c.get('skipped', 0) + c.get('missed', 0)}."
                 )
-    external = await _external_goal_lines(s, ctx, p)
-    if external:
-        d.details = external + d.details
-    d.has_data = bool(goals or habit_rows or external)
-    d.data = {"goals": goal_rows, "habits": habit_rows}
+    d.has_data = bool(goals or habit_data)
+    d.data = {"goals": goal_data, "alignment": alignment, "habits": habit_data}
     return d
 
 

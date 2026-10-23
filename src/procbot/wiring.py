@@ -20,6 +20,10 @@ REGISTRANTS = (
     "procbot.services.calendar",
     "procbot.services.habits",
     "procbot.services.goals",
+    # memory: SAVE_HYPOTHESIS applier + summary rebuild job; reports: evening /
+    # weekly renderers - must stay AFTER services.initiative (replaces stage A ones)
+    "procbot.services.memory",
+    "procbot.services.reports",
     "procbot.ai.jobs",
 )
 

@@ -73,7 +73,9 @@ def test_parse_schedule_weekdays_and_target() -> None:
         "unit": "отжиманий",
     }
     assert hs.parse_target("просто так") is None
-    assert hs.target_text({"amount": 10, "min_amount": 2, "unit": "мин"}) == "10 мин (минимум 2 мин)"
+    assert (
+        hs.target_text({"amount": 10, "min_amount": 2, "unit": "мин"}) == "10 мин (минимум 2 мин)"
+    )
 
 
 # --------------------------------------------------------------------------- due-ness
@@ -109,7 +111,12 @@ async def test_weekly_due_across_weeks_and_dst(wired, clock) -> None:
 async def test_preferred_time_in_spring_gap_resolves_after_gap(wired, clock) -> None:
     ctx = wired
     await make_habit(
-        ctx, clock, created=d(19), title="Чтение", schedule={"type": "daily"}, preferred_time=time(2, 30)
+        ctx,
+        clock,
+        created=d(19),
+        title="Чтение",
+        schedule={"type": "daily"},
+        preferred_time=time(2, 30),
     )
     (item,) = await due(ctx, date(2027, 3, 28))  # Berlin springs forward 02:00 -> 03:00
     assert item.start_at == datetime(2027, 3, 28, 1, 0, tzinfo=UTC)  # 03:00 CEST
@@ -233,9 +240,7 @@ async def test_marking_is_idempotent_per_day(wired, clock) -> None:
     assert first.changed and not again.changed
     assert first.occurrence.time_source == "exact" and first.occurrence.amount == 10
     async with ctx.db.transaction() as s:
-        n = (
-            await s.execute(select(func.count()).select_from(HabitOccurrence))
-        ).scalar_one()
+        n = (await s.execute(select(func.count()).select_from(HabitOccurrence))).scalar_one()
     assert n == 1
     corrected = await mark(ctx, h.id, hs.PARTIAL, TODAY)
     assert corrected.changed and corrected.previous == hs.DONE
@@ -311,7 +316,9 @@ async def test_ai_or_bot_habit_change_needs_approval_user_edit_applies(wired, cl
 
 async def test_increase_is_only_suggested(wired, clock, monkeypatch) -> None:
     ctx = wired
-    h = await make_habit(ctx, clock, created=d(12), title="Чтение", target={"amount": 10, "unit": "мин"})
+    h = await make_habit(
+        ctx, clock, created=d(12), title="Чтение", target={"amount": 10, "unit": "мин"}
+    )
     flex = await make_habit(
         ctx, clock, created=d(12), title="Бег", schedule={"type": "times_per_week", "n": 2}
     )
@@ -321,7 +328,10 @@ async def test_increase_is_only_suggested(wired, clock, monkeypatch) -> None:
         sug = await hs.suggest_increase(s, ctx, h.id)
         assert sug is not None and sug.action.target == {"amount": 12, "unit": "мин"}
         flex_sug = await hs.suggest_increase(s, ctx, flex.id)
-        assert flex_sug is not None and flex_sug.action.schedule == {"type": "times_per_week", "n": 3}
+        assert flex_sug is not None and flex_sug.action.schedule == {
+            "type": "times_per_week",
+            "n": 3,
+        }
         # Threshold X is not decided -> the weekly review suggests nothing.
         assert hs.increase_threshold(ctx) is None
         assert await hs.increase_candidates(s, ctx) == []

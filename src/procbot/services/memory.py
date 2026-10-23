@@ -121,7 +121,10 @@ def scope_of(kind: str) -> str:
 
 
 class SourceType(StrEnum):
-    MESSAGE = "message"  # conversation_messages
+    MESSAGE = "message"  # conversation_messages.id
+    # conversation_messages.update_id: the incoming message is logged only after
+    # its handler finished, so handlers link it by the Telegram update id.
+    UPDATE = "update"
     TASK = "task"
     TASK_EVENT = "task_event"
     SESSION = "session"  # work_sessions
@@ -677,6 +680,17 @@ async def describe_source(s: AsyncSession, src: MemorySource, tz: str | None) ->
     t, sid = src.source_type, src.source_id
     if t == SourceType.MESSAGE:
         m = await s.get(ConversationMessage, sid)
+        if m is None or m.deleted:
+            return "сообщение (удалено из истории)"
+        return f"ваше сообщение {fmt_local(m.created_at, tz)}: «{_short(m.text or m.transcript)}»"
+    if t == SourceType.UPDATE:
+        m = (
+            await s.execute(
+                select(ConversationMessage).where(
+                    ConversationMessage.update_id == sid, ConversationMessage.direction == "in"
+                )
+            )
+        ).scalar_one_or_none()
         if m is None or m.deleted:
             return "сообщение (удалено из истории)"
         return f"ваше сообщение {fmt_local(m.created_at, tz)}: «{_short(m.text or m.transcript)}»"

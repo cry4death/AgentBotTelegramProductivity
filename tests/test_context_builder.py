@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 
+import procbot.services.capture  # noqa: F401  (registers route_message / extract_tasks)
 from procbot.ai import prompting as P
 from procbot.ai.context import ContextBuilder, Extra, estimate_block_tokens
 from procbot.ai.prompting import DataBlock, Prompt
@@ -15,8 +16,6 @@ from procbot.domain.actions import TaskDraft
 from procbot.domain.enums import Actor
 from procbot.services import tasks as ts
 from procbot.services.profile import update_profile
-
-import procbot.services.capture  # noqa: F401  (registers route_message / extract_tasks)
 
 
 async def _add_tasks(ctx, n: int, *, title: str = "Задача") -> list[int]:
@@ -50,7 +49,9 @@ async def _memory(ctx) -> dict[str, int]:
     ids: dict[str, int] = {}
     async with ctx.db.transaction() as s:
         rows = {
-            "fact": MemoryItem(kind="fact", origin="user_said", status="active", content="Любит работать утром"),
+            "fact": MemoryItem(
+                kind="fact", origin="user_said", status="active", content="Любит работать утром"
+            ),
             "hyp": MemoryItem(
                 kind="hypothesis",
                 origin="ai_inferred",
@@ -59,19 +60,30 @@ async def _memory(ctx) -> dict[str, int]:
                 confidence=0.4,
             ),
             "refuted": MemoryItem(
-                kind="hypothesis", origin="user_refuted", status="refuted", content="ОПРОВЕРГНУТО-ленится"
+                kind="hypothesis",
+                origin="user_refuted",
+                status="refuted",
+                content="ОПРОВЕРГНУТО-ленится",
             ),
-            "deleted": MemoryItem(kind="fact", origin="user_said", status="deleted", content="УДАЛЕНО-секрет"),
+            "deleted": MemoryItem(
+                kind="fact", origin="user_said", status="deleted", content="УДАЛЕНО-секрет"
+            ),
         }
-        for key, row in rows.items():
+        for row in rows.values():
             row.created_at = row.updated_at = now
             s.add(row)
         await s.flush()
         ids = {k: v.id for k, v in rows.items()}
-        good = MemorySummary(scope="profile", content="Сводка: утренний человек", valid=True, created_at=now)
-        bad = MemorySummary(scope="patterns", content="НЕВАЛИДНО-старая сводка", valid=False, created_at=now)
+        good = MemorySummary(
+            scope="profile", content="Сводка: утренний человек", valid=True, created_at=now
+        )
+        bad = MemorySummary(
+            scope="patterns", content="НЕВАЛИДНО-старая сводка", valid=False, created_at=now
+        )
         # valid flag not yet reset by the memory service, but built from a refuted item
-        stale = MemorySummary(scope="recent", content="УСТАРЕЛО-ленится", valid=True, created_at=now)
+        stale = MemorySummary(
+            scope="recent", content="УСТАРЕЛО-ленится", valid=True, created_at=now
+        )
         s.add_all([good, bad, stale])
         await s.flush()
         s.add(MemorySummaryItem(summary_id=stale.id, memory_item_id=ids["refuted"]))

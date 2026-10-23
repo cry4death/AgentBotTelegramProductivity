@@ -117,7 +117,11 @@ async def _log_incoming(
     """Conversation history (FR-12). Retention is open question 8: kept until deleted."""
     if update.message is not None:
         m = update.message
-        kind = "voice" if (m.voice or m.audio) else ("command" if (m.text or "").startswith("/") else "text")
+        kind = (
+            "voice"
+            if (m.voice or m.audio)
+            else ("command" if (m.text or "").startswith("/") else "text")
+        )
         session.add(
             ConversationMessage(
                 direction="in",

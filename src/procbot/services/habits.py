@@ -995,7 +995,7 @@ def _flexible_stats(
         active_days = [
             monday + timedelta(days=i)
             for i in range(7)
-            if first <= monday + timedelta(days=i) <= end
+            if first <= monday + timedelta(days=i)
             and not is_paused_on(habit, monday + timedelta(days=i))
         ]
         week = {d: o for d, o in occs.items() if monday <= d <= min(sunday, end)}

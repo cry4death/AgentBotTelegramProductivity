@@ -237,7 +237,12 @@ async def test_goal_hint_matches_existing_goal_only(wired, profile) -> None:
     from procbot.db.models import Goal
 
     async with ctx.db.transaction() as s:
-        g = Goal(title="Английский", status="active", created_at=ctx.clock.now(), updated_at=ctx.clock.now())
+        g = Goal(
+            title="Английский",
+            status="active",
+            created_at=ctx.clock.now(),
+            updated_at=ctx.clock.now(),
+        )
         s.add(g)
         await s.flush()
         gid = g.id

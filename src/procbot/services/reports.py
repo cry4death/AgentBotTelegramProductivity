@@ -36,7 +36,7 @@ from procbot.ai import AITaskSpec, AIUnavailable, DataBlock, Prompt, Tier, regis
 from procbot.ai import prompting as P
 from procbot.ai.gateway import feature_enabled, run_task
 from procbot.context import AppContext
-from procbot.db.models import ConversationMessage, MemoryItem, ReminderSchedule, Task, TaskEvent
+from procbot.db.models import MemoryItem, ReminderSchedule, Task, TaskEvent
 from procbot.domain.actions import ChangeTaskStatus, RescheduleTask, SaveHypothesis
 from procbot.domain.enums import (
     Actor,
@@ -641,18 +641,9 @@ async def record_dispute(
 ) -> MemoryItem | None:
     """Scenario H: the owner disagrees with a conclusion. Stored as their own
     statement (origin user_said) linked to the message; None if memory is off."""
-    sources: list[memory.SourceRef] = []
-    if update_id is not None:
-        msg_id = (
-            await s.execute(
-                select(ConversationMessage.id).where(
-                    ConversationMessage.update_id == update_id,
-                    ConversationMessage.direction == "in",
-                )
-            )
-        ).scalar_one_or_none()
-        if msg_id is not None:
-            sources.append(memory.SourceRef(memory.SourceType.MESSAGE, int(msg_id)))
+    sources = (
+        [memory.SourceRef(memory.SourceType.UPDATE, update_id)] if update_id is not None else []
+    )
     return await memory.add_fact(
         s,
         ctx,
