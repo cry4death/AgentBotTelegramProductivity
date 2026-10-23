@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.db
+*.db-wal
+*.db-shm
+data/
+backups/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+config/app.yaml
+config/ai.yaml
