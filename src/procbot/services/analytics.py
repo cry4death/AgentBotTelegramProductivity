@@ -734,7 +734,7 @@ async def _procrastination(
     repeat = {tid: n for tid, n in Counter(moved).items() if n >= 2}
     for reason, n in reasons.most_common(5):
         d.metrics.append(
-            Metric(f"reason:{reason}", f"«{REASON_LABELS.get(reason, reason)}»", n, "раз", n=n)
+            Metric(f"reason:{reason}", f"«{REASON_LABELS.get(reason, reason)}», отметок", n, n=n)
         )
     if marks:
         d.details.append(

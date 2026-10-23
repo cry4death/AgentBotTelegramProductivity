@@ -269,7 +269,7 @@ def render_weekly_text(
         if measured:
             parts.append(
                 "🧠 Добавлено в память как измеренное: "
-                + "; ".join(f"«{m}»" for m in measured)
+                + "; ".join(measured)
                 + ". Посмотреть и оспорить — «🧠 Память»."
             )
         parts.append("Не согласен с выводом? Нажми «Не согласен» — память будет исправлена.")
@@ -439,7 +439,7 @@ async def build_weekly(
         except AIUnavailable as exc:
             log.info("weekly analysis without AI: %s", exc)
             ai = WeeklyAI(status="unavailable")
-    group_key = f"{op_prefix}:wk"
+    group_key = f"wk-{op_prefix}".replace(":", "-")  # travels in callback data
     new_ids: list[int] = []
     approval_ids: list[int] = []
     async with ctx.db.transaction() as s:

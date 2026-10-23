@@ -1347,7 +1347,9 @@ async def _ai_draft(
 
 
 @contextlib.asynccontextmanager
-async def keep_lease(ctx: AppContext, name: str | None) -> AsyncIterator[None]:
+async def keep_lease(
+    ctx: AppContext, name: str | None, *, interval: float | None = None
+) -> AsyncIterator[None]:
     """Renew a lease held by the current processing run while a long render (AI)
     is in progress (the scheduler lease TTL is short and not renewed by itself).
     No-op when the lease is not held (e.g. a renderer called directly)."""
@@ -1360,11 +1362,11 @@ async def keep_lease(ctx: AppContext, name: str | None) -> AsyncIterator[None]:
     if owner is None:
         yield
         return
-    interval = max(5.0, ctx.config.scheduler.lease_seconds / 3)
+    every = interval if interval is not None else max(5.0, ctx.config.scheduler.lease_seconds / 3)
 
     async def renew_loop() -> None:
         while True:
-            await asyncio.sleep(interval)
+            await asyncio.sleep(every)
             if not await leases.renew(ctx, name, owner=owner):
                 return
 

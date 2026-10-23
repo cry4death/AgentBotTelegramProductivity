@@ -24,6 +24,10 @@ REGISTRANTS = (
     # weekly renderers - must stay AFTER services.initiative (replaces stage A ones)
     "procbot.services.memory",
     "procbot.services.reports",
+    # planning: MORNING_PLAN / REPLAN renderers + ApplyDayPlan; interventions:
+    # START_DELAY renderer + CHOOSE_INTERVENTION - AFTER services.initiative
+    "procbot.services.planning",
+    "procbot.services.interventions",
     "procbot.ai.jobs",
 )
 
