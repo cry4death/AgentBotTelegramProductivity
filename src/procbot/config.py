@@ -100,6 +100,27 @@ class BackupConfig(BaseModel):
     encrypt: bool = True
 
 
+class CalendarConfig(BaseModel):
+    """Google Calendar (stage C, services.calendar). Open question 6: which calendars
+    to read/write is chosen by the owner in /calendar; the OAuth scopes are here."""
+
+    # Minimal default (UNCONFIRMED, see docs/deploy.md "Google Calendar"): read the
+    # calendar list + events of every calendar, write (insert) only to owned ones.
+    scopes: list[str] = Field(
+        default_factory=lambda: [
+            "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+            "https://www.googleapis.com/auth/calendar.events.readonly",
+            "https://www.googleapis.com/auth/calendar.events.owned",
+        ]
+    )
+    sync_interval_minutes: float = Field(default=15.0, gt=0)  # UNCONFIRMED
+    stale_after_minutes: float = Field(default=60.0, gt=0)  # UNCONFIRMED
+    sync_past_days: int = Field(default=1, ge=0, le=31)
+    sync_future_days: int = Field(default=14, ge=1, le=90)
+    oauth_state_ttl_minutes: int = Field(default=10, ge=1, le=60)
+    max_block_hours: float = Field(default=12.0, gt=0, le=24)
+
+
 class AppConfig(BaseModel):
     gate: GateConfig = Field(default_factory=GateConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
@@ -107,6 +128,7 @@ class AppConfig(BaseModel):
     approvals: ApprovalConfig = Field(default_factory=ApprovalConfig)
     ai_features: AISwitches = Field(default_factory=AISwitches)
     backup: BackupConfig = Field(default_factory=BackupConfig)
+    calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     # Open question 4: deep-dialog threshold (repeated postponements of one task).
     deep_dialog_after_postpones: int | None = None
     # Planner: share of free time left unplanned for breaks / surprises.

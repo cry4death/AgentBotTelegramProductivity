@@ -17,6 +17,9 @@ REGISTRANTS = (
     "procbot.services.approvals",
     "procbot.services.sessions",
     "procbot.services.backup",
+    "procbot.services.calendar",
+    "procbot.services.habits",
+    "procbot.services.goals",
     "procbot.ai.jobs",
 )
 
