@@ -1,0 +1,28 @@
+{
+  "id": "chatcmpl-AbC123",
+  "object": "chat.completion",
+  "created": 1767225600,
+  "model": "test-model-2026-01-01",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"intent\":\"add_tasks\",\"confidence\":0.92,\"needs_clarification\":null,\"clarifying_question\":null}",
+        "refusal": null,
+        "annotations": []
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 412,
+    "completion_tokens": 27,
+    "total_tokens": 439,
+    "prompt_tokens_details": {"cached_tokens": 0, "audio_tokens": 0},
+    "completion_tokens_details": {"reasoning_tokens": 0, "audio_tokens": 0}
+  },
+  "service_tier": "default",
+  "system_fingerprint": "fp_test"
+}

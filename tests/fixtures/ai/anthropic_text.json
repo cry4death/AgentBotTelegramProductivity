@@ -1,0 +1,10 @@
+{
+  "id": "msg_02Test",
+  "type": "message",
+  "role": "assistant",
+  "model": "test-claude-model",
+  "content": [{"type": "text", "text": "Хорошо, давай разобьём задачу на шаги."}],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 200, "output_tokens": 20}
+}

@@ -1,0 +1,5 @@
+{
+  "candidates": [{"content": {"parts": [{"text": "Напомни мне позвонить маме в семь.\n"}], "role": "model"}, "finishReason": "STOP"}],
+  "usageMetadata": {"promptTokenCount": 180, "candidatesTokenCount": 12, "totalTokenCount": 192},
+  "modelVersion": "test-gemini-model"
+}

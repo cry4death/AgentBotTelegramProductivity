@@ -1,0 +1,38 @@
+# Production: a small Linux VPS, `docker compose up -d --build`.
+#
+# Exactly ONE replica: Telegram long polling must never run twice (spec section 6).
+# Do not scale this service. procbot also refuses to start a second copy itself
+# (file lock + "poller" lease in the database).
+services:
+  procbot:
+    build: .
+    image: procbot:latest
+    container_name: procbot
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: true
+    environment:
+      DATABASE_PATH: /app/data/procbot.db
+      LOCK_PATH: /app/data/procbot.lock
+      BACKUP_DIR: /app/backups
+      APP_CONFIG_PATH: /app/config/app.yaml
+      AI_CONFIG_PATH: /app/config/ai.yaml
+      HTTP_PORT: "8080"
+    volumes:
+      - procbot-data:/app/data          # SQLite database (WAL) + instance lock
+      - procbot-backups:/app/backups    # encrypted backups
+      - ./config:/app/config:ro         # app.yaml / ai.yaml (optional)
+    ports:
+      # /healthz for local monitoring only; put a reverse proxy in front for stage D.
+      - "127.0.0.1:8080:8080"
+    stop_grace_period: 45s              # graceful shutdown waits up to 30 s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  procbot-data:
+  procbot-backups:
