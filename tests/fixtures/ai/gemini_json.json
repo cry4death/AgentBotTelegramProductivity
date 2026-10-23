@@ -1,0 +1,12 @@
+{
+  "candidates": [
+    {
+      "content": {"parts": [{"text": "{\"intent\": \"question\", \"confidence\": 0.66, \"needs_clarification\": true, \"clarifying_question\": \"Про какой проект речь?\"}"}], "role": "model"},
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 380, "candidatesTokenCount": 31, "totalTokenCount": 451, "thoughtsTokenCount": 40},
+  "modelVersion": "test-gemini-model",
+  "responseId": "resp-1"
+}

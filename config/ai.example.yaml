@@ -1,0 +1,146 @@
+# AI gateway configuration. Copy to config/ai.yaml (path: AI_CONFIG_PATH).
+#
+# No file -> the bot works without AI (every AI feature takes its template branch).
+#
+# Providers, models and budget are NOT decided yet (spec section 10, question 7):
+# every model id below is a "<model-id>" placeholder and every price is unset.
+# Keys are never written here: each credential names an environment variable
+# (.env) holding the key. The key is imported into the DB encrypted with
+# MASTER_KEY; logs and the audit only ever show the credential label.
+
+# ----------------------------------------------------------------------------
+# credentials: label -> where and how to authenticate.
+#   provider:         openai | openai_compatible | anthropic | gemini
+#   base_url:         required for openai_compatible; optional override otherwise
+#   api_key_env:      env variable with the key; omit/null for local servers
+#   spend_limit_usd:  optional monthly limit for this key (null = none)
+#   allowed_data:     optional privacy filter: only these data categories may be
+#                     sent with this key (message, history, memory, tasks,
+#                     calendar, profile, analytics, audio). Omitted = all.
+#                     (architecture proposal, not an approved requirement)
+#   headers:          optional extra HTTP headers (never keys)
+# Several keys per provider are fine: give each its own label.
+credentials:
+  openai-main:
+    provider: openai
+    api_key_env: OPENAI_API_KEY
+
+  openrouter-main:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+
+  anthropic-main:
+    provider: anthropic
+    api_key_env: ANTHROPIC_API_KEY
+
+  gemini-main:
+    provider: gemini
+    api_key_env: GEMINI_API_KEY
+    # Example: send only the current message and tasks, never memory/history.
+    # allowed_data: [message, tasks, audio]
+
+  ollama-local:
+    provider: openai_compatible
+    base_url: http://localhost:11434/v1
+    api_key_env: null          # local server: no key
+
+# ----------------------------------------------------------------------------
+# models: alias -> a concrete model on a credential plus its capability
+# descriptor (declared here, never guessed).
+#   credential:          a label, or a list of labels tried in order (rotation)
+#   model:               provider model id
+#   structured_output:   native_schema | tool_call | json_mode | none
+#                        (none = only text tasks such as chat_reply)
+#   max_context_tokens / max_output_tokens: optional limits
+#   audio_input / vision: capabilities (stt tier needs audio_input: true)
+#   price_in_per_mtok / price_out_per_mtok: USD per 1M tokens (null = unknown:
+#                        cost is recorded as "estimated")
+#   price_per_audio_minute: USD per audio minute (stt)
+#   timeout_seconds:     optional per-request timeout override
+models:
+  openai-a:
+    credential: openai-main
+    model: "<model-id>"
+    structured_output: native_schema    # response_format json_schema, strict
+    max_context_tokens: null
+    price_in_per_mtok: null
+    price_out_per_mtok: null
+
+  openai-stt:
+    credential: openai-main
+    model: "<model-id>"                 # a speech-to-text model
+    audio_input: true
+    price_per_audio_minute: null
+
+  router-a:
+    credential: openrouter-main
+    model: "<model-id>"
+    structured_output: native_schema    # check that the routed model supports it
+
+  claude-a:
+    credential: anthropic-main
+    model: "<model-id>"
+    structured_output: tool_call        # one forced tool
+
+  gemini-a:
+    credential: gemini-main
+    model: "<model-id>"
+    structured_output: native_schema    # responseMimeType + responseSchema
+
+  gemini-stt:
+    credential: gemini-main
+    model: "<model-id>"                 # a model that accepts audio input
+    audio_input: true
+
+  local-a:
+    credential: ollama-local
+    model: "<model-id>"
+    structured_output: json_mode        # "return JSON" + schema in the prompt
+
+# ----------------------------------------------------------------------------
+# tiers: ordered candidates per tier. Tasks reference tiers, never models.
+#   fast: cheap classification; standard: extraction, replies, decomposition;
+#   strong: day planning, deep procrastination dialog, weekly analysis;
+#   stt: voice transcription.
+tiers:
+  fast: [router-a, local-a]
+  standard: [claude-a, router-a]
+  strong: [claude-a, gemini-a]
+  stt: [openai-stt, gemini-stt]
+
+escalation:
+  validation_failed_twice: next_tier   # answer + repair invalid -> next tier
+  caller_escalate_to: strong           # services pass escalate=True
+
+# Open question 7: no budget decided -> null = accounting only.
+budget:
+  monthly_soft_usd: null
+  monthly_hard_usd: null
+  on_soft_limit: downgrade_one_tier
+  on_hard_limit: no_ai_mode
+
+# Technical limits (not product decisions).
+limits:
+  max_attempts_per_call: 6
+  call_timeout_seconds: 90
+  request_timeout_seconds: 40
+  retries_per_candidate: 2      # timeouts / 5xx / network, exponential backoff
+  backoff_base_seconds: 1
+  backoff_max_seconds: 20
+  cooldown_base_seconds: 60     # 429 without Retry-After
+  cooldown_max_seconds: 3600
+
+# When every call fails for a while the bot switches to no-AI mode, tells the
+# owner once, and a background probe brings it back.
+no_ai:
+  failed_calls_threshold: 3
+  min_failure_seconds: 300
+  probe_interval_seconds: 300
+
+features:
+  # Open question: may keys be added via the bot chat? Default: only via .env.
+  allow_keys_via_chat: false
+  # Warning when today's spend > factor x trailing daily average (UNCONFIRMED default).
+  anomaly_factor: 3.0
+  anomaly_trailing_days: 7

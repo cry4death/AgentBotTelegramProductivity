@@ -117,6 +117,7 @@ async def test_duplicate_update_id_processed_once(ctx, bot_and_session) -> None:
         hits.append(message.message_id)
 
     dp.include_router(probe)
+    dp.sub_routers.insert(0, dp.sub_routers.pop())  # before the free-text fallback (chat)
     upd = message_update("ping", update_id=777)
     await dp.feed_update(bot, upd)
     await dp.feed_update(bot, upd)

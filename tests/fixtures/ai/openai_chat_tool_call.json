@@ -1,0 +1,28 @@
+{
+  "id": "chatcmpl-Tool1",
+  "object": "chat.completion",
+  "created": 1767225601,
+  "model": "test-model",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_abc",
+            "type": "function",
+            "function": {
+              "name": "IntentClassification",
+              "arguments": "{\"intent\":\"plan_day\",\"confidence\":0.7,\"needs_clarification\":false,\"clarifying_question\":null}"
+            }
+          }
+        ],
+        "refusal": null
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {"prompt_tokens": 300, "completion_tokens": 40, "total_tokens": 340}
+}

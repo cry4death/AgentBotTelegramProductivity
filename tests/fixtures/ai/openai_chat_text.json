@@ -1,0 +1,9 @@
+{
+  "id": "chatcmpl-Text1",
+  "object": "chat.completion",
+  "model": "local-model",
+  "choices": [
+    {"index": 0, "message": {"role": "assistant", "content": "Привет! Давай начнём с маленького шага."}, "finish_reason": "stop"}
+  ],
+  "usage": {"prompt_tokens": 120, "completion_tokens": 15, "total_tokens": 135}
+}

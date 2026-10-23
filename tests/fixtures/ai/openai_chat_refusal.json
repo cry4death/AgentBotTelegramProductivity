@@ -1,0 +1,9 @@
+{
+  "id": "chatcmpl-Ref1",
+  "object": "chat.completion",
+  "model": "test-model",
+  "choices": [
+    {"index": 0, "message": {"role": "assistant", "content": null, "refusal": "I'm sorry, I can't help with that."}, "finish_reason": "stop"}
+  ],
+  "usage": {"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110}
+}

@@ -1,0 +1,54 @@
+# procbot behaviour settings. Copy to config/app.yaml (path: APP_CONFIG_PATH).
+# No file = the defaults below. Values marked UNCONFIRMED are technical defaults
+# for questions the spec leaves open (section 10); see docs/open-questions.md.
+# Owner-specific values (timezone, quiet hours, morning/evening time, pause,
+# personality, reminder timing) are NOT here: they are set in the bot (/settings).
+
+gate:
+  # Hard rule FR-07: at most 4 reminders in ANY sliding 60 minutes, all tasks together.
+  max_reminders: 4          # can be lowered, never above 4
+  window_minutes: 60
+  # Open question 3: do service reports (morning plan, evening/weekly review)
+  # count toward the 4/60 limit? null = not decided -> treated as "counts"
+  # (UNCONFIRMED, the conservative choice). Reminder categories always count.
+  categories:
+    morning_plan:   {counts_toward_limit: null, enabled: true}
+    evening_review: {counts_toward_limit: null, enabled: true}
+    weekly_review:  {counts_toward_limit: null, enabled: true}
+  # Timer signals the owner set up for an active session ignore quiet hours
+  # (UNCONFIRMED). Set true to silence them during quiet hours too.
+  timer_signals_respect_quiet_hours: false
+  # A deferred reminder older than this is folded into one digest (UNCONFIRMED).
+  default_stale_after_minutes: 120
+  respect_calendar_busy: true
+
+scheduler:
+  tick_seconds: 20          # how often due reminders are polled from the DB
+  lease_seconds: 120
+  batch_size: 20
+
+reminders:
+  # Open question 3: initial adaptive intervals are not decided.
+  # null = this reminder type is off until the owner sets it in /settings.
+  pre_task_lead_minutes: null
+  start_delay_after_minutes: null
+  max_start_delay_followups: null
+
+approvals:
+  ttl_hours: 24             # UNCONFIRMED: pending proposals expire after this
+
+ai_features:                # resource-heavy AI features can be switched off
+  weekly_analysis: true
+  memory_rebuild: true
+  voice: true
+
+backup:
+  # Open questions 8 and 10: periodicity, retention and off-site copies are not decided.
+  interval_hours: 24        # UNCONFIRMED; null = automatic backups off
+  retention_days: null      # null = never delete automatically
+  encrypt: true             # Fernet with MASTER_KEY; keep true
+
+# Open question 4: repeated postponements before a deep dialog. null = not set.
+deep_dialog_after_postpones: null
+# Share of free time the planner leaves unplanned (UNCONFIRMED).
+planner_free_buffer_ratio: 0.25

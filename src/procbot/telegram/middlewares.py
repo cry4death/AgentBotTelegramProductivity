@@ -77,9 +77,14 @@ class DedupMiddleware(BaseMiddleware):
         data["update_id"] = event.update_id
         result = await handler(event, data)
         now = self.ctx.clock.now()
+        # Handlers that received a secret (e.g. an AI key) add the update id here
+        # so its text is not stored in conversation history.
+        redacted: set[int] = self.ctx.registry.get("redacted_update_ids", set())
+        redact = event.update_id in redacted
+        redacted.discard(event.update_id)
         async with self.ctx.db.transaction() as s:
             await mark_processed(s, event.update_id, now)
-            await _log_incoming(s, event, now)
+            await _log_incoming(s, event, now, redact=redact)
         return result
 
 
@@ -92,7 +97,7 @@ async def mark_processed(session: Any, update_id: int, now: Any) -> None:
     await session.execute(stmt)
 
 
-async def _log_incoming(session: Any, update: Update, now: Any) -> None:
+async def _log_incoming(session: Any, update: Update, now: Any, *, redact: bool = False) -> None:
     """Conversation history (FR-12). Retention is open question 8: kept until deleted."""
     if update.message is not None:
         m = update.message
@@ -103,7 +108,7 @@ async def _log_incoming(session: Any, update: Update, now: Any) -> None:
                 kind=kind,
                 telegram_message_id=m.message_id,
                 update_id=update.update_id,
-                text=m.text,
+                text="[скрыто]" if redact else m.text,
                 created_at=now,
             )
         )

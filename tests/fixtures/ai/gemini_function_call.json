@@ -1,0 +1,11 @@
+{
+  "candidates": [
+    {
+      "content": {"parts": [{"functionCall": {"name": "IntentClassification", "args": {"intent": "postpone", "confidence": 0.9}}}], "role": "model"},
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {"promptTokenCount": 250, "candidatesTokenCount": 12, "totalTokenCount": 262},
+  "modelVersion": "test-gemini-model"
+}

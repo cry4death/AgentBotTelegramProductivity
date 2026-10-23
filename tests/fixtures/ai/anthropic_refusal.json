@@ -1,0 +1,9 @@
+{
+  "id": "msg_03Test",
+  "type": "message",
+  "role": "assistant",
+  "model": "test-claude-model",
+  "content": [],
+  "stop_reason": "refusal",
+  "usage": {"input_tokens": 50, "output_tokens": 0}
+}
