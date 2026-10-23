@@ -186,6 +186,9 @@ class Task(Base):
     recurrence: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # recurring chores
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     postpone_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Per-task reminder timing set by user or AdjustReminders (AUTO in FR-15):
+    # {"pre_task_lead_min": int|None, "start_delay_min": int|None}
+    reminder_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     # approved = the user confirmed this commitment (FR-15 rescheduling needs consent)
     approved: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[str] = mapped_column(String(16), default="user")  # Actor

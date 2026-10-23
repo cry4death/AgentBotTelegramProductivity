@@ -12,7 +12,10 @@ from procbot.context import AppContext
 
 REGISTRANTS = (
     "procbot.services.reminders",
+    "procbot.services.initiative",
     "procbot.services.tasks",
+    "procbot.services.approvals",
+    "procbot.services.sessions",
 )
 
 
