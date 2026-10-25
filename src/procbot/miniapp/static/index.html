@@ -2,69 +2,432 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Мой день</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    margin: 0; padding: 16px; font: 15px/1.4 system-ui, sans-serif;
-    background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #111);
+  :root {
+    color-scheme: light dark;
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f3f5);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #777777);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: var(--tg-theme-destructive-text-color, #d33);
   }
-  h1 { font-size: 20px; margin: 0 0 12px; }
-  h2 { font-size: 14px; margin: 20px 0 8px; color: var(--tg-theme-hint-color, #777); text-transform: uppercase; }
-  .task { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0;
-          border-bottom: 1px solid var(--tg-theme-secondary-bg-color, #eee); }
-  .task .body { flex: 1; min-width: 0; }
-  .meta, .step { font-size: 13px; color: var(--tg-theme-hint-color, #777); }
-  button { border: 0; border-radius: 8px; padding: 6px 10px; font: inherit;
-           background: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, #fff); }
-  .done .title { text-decoration: line-through; opacity: .6; }
-  #msg { color: var(--tg-theme-hint-color, #777); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tg]) { --bg: #17191c; --bg2: #23262b; --text: #eceff3; --hint: #8b929b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.4 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  nav { position: sticky; top: 0; z-index: 2; display: flex; gap: 4px; overflow-x: auto; padding: 8px 12px;
+        background: var(--bg); border-bottom: 1px solid var(--bg2); scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { flex: none; background: var(--bg2); color: var(--text); }
+  nav button.on { background: var(--btn); color: var(--btn-text); }
+  main { padding: 12px 16px 40px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  h2 { font-size: 13px; margin: 20px 0 6px; color: var(--hint); text-transform: uppercase; letter-spacing: .02em; }
+  button { border: 0; border-radius: 10px; padding: 7px 12px; font: inherit; cursor: pointer;
+           background: var(--btn); color: var(--btn-text); }
+  button.ghost { background: var(--bg2); color: var(--text); }
+  button:disabled { opacity: .5; }
+  input, select { font: inherit; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--bg2);
+                  background: var(--bg2); color: var(--text); min-width: 0; }
+  .row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--bg2); }
+  .row .body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .meta { font-size: 13px; color: var(--hint); }
+  .done > .body .title { text-decoration: line-through; opacity: .6; }
+  .card { background: var(--bg2); border-radius: 14px; padding: 12px 14px; margin: 10px 0; }
+  .children { margin-left: 16px; border-left: 2px solid var(--bg2); padding-left: 10px; }
+  .form { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .form input[type=text] { flex: 1 1 180px; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .day { background: var(--bg2); border-radius: 12px; padding: 10px 12px; }
+  .day.today { outline: 2px solid var(--btn); }
+  .ev { font-size: 13px; color: var(--hint); }
+  .bar { height: 6px; border-radius: 3px; background: var(--bg); overflow: hidden; margin: 6px 0; }
+  .bar > i { display: block; height: 100%; background: var(--btn); }
+  .ms { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+  .ms .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--btn); flex: none; }
+  .ms.done .dot { background: var(--btn); }
+  .ms.key .dot { border-radius: 2px; }
+  .timer { font-size: 40px; font-variant-numeric: tabular-nums; margin: 8px 0; }
+  .set { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--bg2); }
+  .set label { flex: 1; }
+  .set input { width: 130px; }
+  #toast { position: fixed; left: 16px; right: 16px; bottom: 16px; padding: 10px 14px; border-radius: 12px;
+           background: var(--text); color: var(--bg); display: none; z-index: 3; }
+  .muted { color: var(--hint); }
+  @media (min-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
 <body>
-<h1 id="head">Мой день</h1>
-<div id="msg">Загружаю…</div>
-<div id="list"></div>
+<nav id="tabs"></nav>
+<main id="view"><p class="muted">Загружаю…</p></main>
+<div id="toast"></div>
 <script>
+"use strict";
 const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
-const auth = { Authorization: "tma " + (tg ? tg.initData : "") };
-const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+if (tg) { tg.ready(); tg.expand(); document.documentElement.setAttribute("data-tg", ""); }
+const AUTH = "tma " + (tg ? tg.initData : "");
+// "/miniapp" and "/miniapp/" both resolve API calls to "/miniapp/api/...".
+const BASE = location.pathname.replace(/\/?$/, "/") + "api/";
 
-async function load() {
-  const msg = document.getElementById("msg"), list = document.getElementById("list");
-  let data;
-  try {
-    const r = await fetch("api/day", { headers: auth });
-    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "Откройте приложение из Telegram." : "Ошибка " + r.status);
-    data = await r.json();
-  } catch (e) { msg.textContent = e.message; return; }
-  document.getElementById("head").textContent = "Мой день · " + data.day.split("-").reverse().slice(0, 2).join(".");
-  list.replaceChildren();
-  msg.textContent = data.sections.length ? "" : "На сегодня задач нет.";
-  for (const sec of data.sections) {
-    list.append(el("h2", null, sec.title));
-    for (const t of sec.tasks) {
-      const row = el("div", "task"), body = el("div", "body");
-      body.append(el("div", "title", t.title));
-      const meta = [t.start && "в " + t.start, t.due && "срок " + t.due, t.estimate_min && "~" + t.estimate_min + " мин"].filter(Boolean).join(" · ");
-      if (meta) body.append(el("div", "meta", meta));
-      if (t.next_step) body.append(el("div", "step", "Следующий шаг: " + t.next_step));
-      const btn = el("button", null, "Готово");
-      btn.onclick = async () => {
-        btn.disabled = true;
-        const r = await fetch("api/tasks/" + t.id + "/done", { method: "POST", headers: auth });
-        if (r.ok) { row.classList.add("done"); btn.remove(); } else { btn.disabled = false; }
-      };
-      row.append(body, btn);
-      list.append(row);
-    }
+const TABS = [
+  ["day", "День"], ["tasks", "Задачи"], ["week", "Неделя"], ["goals", "Цели"],
+  ["habits", "Привычки"], ["work", "Работа"], ["report", "Отчёт"], ["settings", "Настройки"],
+];
+let current = "day";
+let tick = null;
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined && v !== false) e.setAttribute(k, v === true ? "" : v);
   }
-  if (data.backlog_count) list.append(el("p", "meta", "В бэклоге: " + data.backlog_count));
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : String(k));
+  return e;
 }
-load();
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 2600);
+}
+function confirmBox(text) {
+  return new Promise((resolve) => {
+    if (tg && tg.showConfirm) tg.showConfirm(text, (ok) => resolve(!!ok));
+    else resolve(window.confirm(text));
+  });
+}
+function opKey() {
+  return (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).slice(0, 64);
+}
+async function api(path, body) {
+  const opts = { headers: { Authorization: AUTH } };
+  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(BASE + path, opts);
+  let data = null;
+  try { data = await r.json(); } catch (_) { data = null; }
+  if (r.status === 401 || r.status === 403) throw new Error("Откройте приложение из Telegram.");
+  if (!r.ok) { const e = new Error((data && data.error) || "Ошибка " + r.status); e.data = data; e.status = r.status; throw e; }
+  return data;
+}
+function fmtDate(iso) { const [y, m, d] = iso.split("-"); return d + "." + m; }
+const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+function weekday(iso) { return WD[new Date(iso + "T12:00:00").getDay()]; }
+function mmss(sec) { const m = Math.floor(sec / 60), s = sec % 60; const h = Math.floor(m / 60);
+  return (h ? h + ":" + String(m % 60).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0"); }
+
+// ------------------------------------------------------------------ shared task row
+
+function taskMeta(t) {
+  return [t.start && "в " + t.start, t.planned_date && !t.start && "на " + fmtDate(t.planned_date),
+    t.due && (t.due_is_hard ? "жёсткий срок " : "срок ") + t.due, t.estimate_min && "~" + t.estimate_min + " мин"]
+    .filter(Boolean).join(" · ");
+}
+async function markDone(t, after) {
+  try { await api("tasks/" + t.id + "/done", {}); }
+  catch (e) {
+    if (e.status === 409 && e.data && e.data.criteria) {
+      const ok = await confirmBox("Критерий готовности:\n" + (e.data.done_criteria || "—") + "\n\nРезультат ему соответствует?");
+      if (!ok) { toast("Не отмечено. Можно отметить частичный прогресс."); return; }
+      await api("tasks/" + t.id + "/done", { criteria_confirmed: true });
+    } else throw e;
+  }
+  toast("Готово"); after();
+}
+function taskRow(t, after, opts) {
+  opts = opts || {};
+  const done = t.status === "done";
+  const body = el("div", { class: "body" },
+    el("div", { class: "title" }, t.title),
+    taskMeta(t) && el("div", { class: "meta" }, taskMeta(t)),
+    t.next_step && el("div", { class: "meta" }, "Следующий шаг: " + t.next_step),
+    t.progress_note && !done && el("div", { class: "meta" }, "Прогресс: " + t.progress_note));
+  const acts = el("div", { class: "acts" });
+  if (!done && !["cancelled", "someday"].includes(t.status)) {
+    acts.append(
+      el("button", { class: "ghost", title: "Начать работу", onclick: () => startWork(t.id) }, "▶"),
+      el("button", { class: "ghost", onclick: async () => {
+        const note = window.prompt("Что уже сделано?");
+        if (note === null) return;
+        await guard(() => api("tasks/" + t.id + "/progress", { note }));
+        toast("Прогресс записан, задача остаётся открытой"); after();
+      } }, "½"),
+      el("button", { onclick: () => guard(() => markDone(t, after)) }, "Готово"));
+  }
+  if (opts.addChild) acts.append(el("button", { class: "ghost", title: "Добавить шаг", onclick: () => opts.addChild(t) }, "+"));
+  return el("div", { class: "row" + (done ? " done" : "") }, body, acts);
+}
+async function guard(fn) { try { return await fn(); } catch (e) { toast(e.message); throw e; } }
+async function startWork(taskId) {
+  try { await api("session/start", { task_id: taskId, mode: "free" }); toast("Сессия начата"); show("work"); }
+  catch (e) { toast(e.message); }
+}
+
+// ------------------------------------------------------------------ screens
+
+const screens = {
+  async day(v) {
+    const d = await api("day");
+    v.append(el("h1", {}, "Мой день · " + fmtDate(d.day)));
+    if (d.session) v.append(el("div", { class: "card" },
+      el("b", {}, d.session.needs_outcome ? "Сессия закончена — чем закончилась?" : "Идёт работа"),
+      el("div", { class: "meta" }, d.session.task_title || "без задачи"),
+      el("button", { onclick: () => show("work") }, "Открыть")));
+    if (!d.sections.length) v.append(el("p", { class: "muted" }, "На сегодня задач нет."));
+    for (const sec of d.sections) {
+      v.append(el("h2", {}, sec.title));
+      for (const t of sec.tasks) v.append(taskRow(t, () => show("day")));
+    }
+    if (d.habits.length) {
+      v.append(el("h2", {}, "Привычки"));
+      for (const h of d.habits) v.append(habitRow(h, () => show("day")));
+    }
+    if (d.backlog_count) v.append(el("p", { class: "meta" }, "В бэклоге: " + d.backlog_count));
+  },
+
+  async tasks(v, state) {
+    const view = (state && state.view) || "today";
+    const sel = el("select", { onchange: () => show("tasks", { view: sel.value }) },
+      ...[["today", "Сегодня"], ["upcoming", "Ближайшие"], ["backlog", "Бэклог"], ["someday", "Когда-нибудь"], ["done", "Сделано"]]
+        .map(([k, n]) => el("option", { value: k, selected: k === view }, n)));
+    const title = el("input", { type: "text", placeholder: "Новая задача", maxlength: "500" });
+    const when = el("input", { type: "date" });
+    const add = el("form", { class: "form", onsubmit: async (ev) => {
+      ev.preventDefault();
+      if (!title.value.trim()) return;
+      await guard(() => api("tasks", { title: title.value, planned_date: when.value || null, op_key: opKey() }));
+      toast("Задача добавлена"); show("tasks", { view });
+    } }, title, when, el("button", { type: "submit" }, "Добавить"));
+    v.append(el("h1", {}, "Задачи"), sel, add);
+    const d = await api("tasks?view=" + encodeURIComponent(view));
+    if (!d.tasks.length) v.append(el("p", { class: "muted" }, "Здесь пусто."));
+    const addChild = async (t) => {
+      const name = window.prompt("Шаг для «" + t.title + "»");
+      if (!name || !name.trim()) return;
+      await guard(() => api("tasks", { title: name, parent_id: t.id, op_key: opKey() }));
+      show("tasks", { view });
+    };
+    const render = (t) => {
+      const box = el("div", {}, taskRow(t, () => show("tasks", { view }), { addChild }));
+      if (t.children && t.children.length) box.append(el("div", { class: "children" }, ...t.children.map(render)));
+      return box;
+    };
+    for (const t of d.tasks) v.append(render(t));
+  },
+
+  async week(v, state) {
+    const d = await api("week" + (state && state.start ? "?start=" + state.start : ""));
+    const shift = (n) => { const x = new Date(d.start + "T12:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+    v.append(el("h1", {}, "Неделя с " + fmtDate(d.start)),
+      el("div", { class: "form" },
+        el("button", { class: "ghost", onclick: () => show("week", { start: shift(-7) }) }, "← Назад"),
+        el("button", { class: "ghost", onclick: () => show("week", {}) }, "Эта неделя"),
+        el("button", { class: "ghost", onclick: () => show("week", { start: shift(7) }) }, "Вперёд →")));
+    if (!d.calendar.connected) v.append(el("p", { class: "meta" }, "Google Календарь не подключён: /calendar в чате."));
+    else if (d.calendar.stale) v.append(el("p", { class: "meta" }, "⚠️ Данные календаря могут быть неактуальны."));
+    const grid = el("div", { class: "grid" });
+    for (const day of d.days) {
+      const box = el("div", { class: "day" + (day.is_today ? " today" : "") },
+        el("b", {}, weekday(day.date) + " " + fmtDate(day.date)));
+      for (const e of day.events) box.append(el("div", { class: "ev" }, "📅 " + (e.all_day ? "весь день" : e.start + "–" + e.end) + " " + e.title));
+      for (const t of day.tasks) box.append(el("div", { class: t.status === "done" ? "meta" : "" },
+        (t.status === "done" ? "✓ " : "• ") + (t.start ? t.start + " " : "") + t.title));
+      if (day.habits) box.append(el("div", { class: "meta" }, "Привычек: " + day.habits));
+      if (!day.events.length && !day.tasks.length && !day.habits) box.append(el("div", { class: "meta" }, "свободно"));
+      grid.append(box);
+    }
+    v.append(grid);
+  },
+
+  async goals(v) {
+    const d = await api("goals");
+    v.append(el("h1", {}, "Цели и дорожные карты"));
+    if (!d.goals.length) v.append(el("p", { class: "muted" }, "Целей пока нет. Добавить можно в чате: /goals."));
+    for (const g of d.goals) {
+      const m = g.measured;
+      const share = m.milestones_total ? m.milestones_done / m.milestones_total : (m.tasks_total ? m.tasks_done / m.tasks_total : null);
+      const card = el("div", { class: "card" },
+        el("b", {}, g.title),
+        el("div", { class: "meta" }, [g.status === "paused" ? "на паузе" : null,
+          g.horizon_date && "до " + fmtDate(g.horizon_date) + (g.days_left !== null ? " (" + g.days_left + " дн.)" : "")].filter(Boolean).join(" · ")),
+        g.measurable_outcome && el("div", { class: "meta" }, "Результат: " + g.measurable_outcome),
+        share !== null && el("div", { class: "bar" }, el("i", { style: "width:" + Math.round(share * 100) + "%" })),
+        el("div", { class: "meta" }, "Этапы: " + m.milestones_done + "/" + m.milestones_total + " · задачи: " + m.tasks_done + "/" + m.tasks_total),
+        g.reported && el("div", { class: "meta" }, "По твоим словам: " + g.reported));
+      if (g.milestones.length) {
+        card.append(el("h2", {}, "Дорожная карта"));
+        for (const ms of g.milestones) card.append(el("div", { class: "ms" + (ms.status === "done" ? " done" : "") + (ms.is_key ? " key" : "") },
+          el("span", { class: "dot" }), el("span", {}, ms.title + (ms.due ? " · " + fmtDate(ms.due) : "") + (ms.is_key ? " · ключевой" : ""))));
+      }
+      if (g.open_tasks.length) {
+        card.append(el("h2", {}, "Открытые задачи"));
+        for (const t of g.open_tasks) card.append(taskRow(t, () => show("goals")));
+      }
+      v.append(card);
+    }
+  },
+
+  async habits(v) {
+    const d = await api("habits");
+    v.append(el("h1", {}, "Привычки"));
+    if (!d.habits.length) v.append(el("p", { class: "muted" }, "Привычек пока нет. Добавить можно в чате: /habits."));
+    for (const h of d.habits) {
+      const row = habitRow({ id: h.id, title: h.title, time: h.time, target: h.target, status: h.today_status },
+        () => show("habits"), h.due_today && h.status === "active");
+      row.querySelector(".body").append(el("div", { class: "meta" }, h.schedule + (h.status !== "active" ? " · " + h.status : "")),
+        el("div", { class: "meta" }, h.stability));
+      v.append(row);
+    }
+  },
+
+  async work(v) {
+    const d = (await api("session")).session;
+    v.append(el("h1", {}, "Работа"));
+    if (!d) {
+      v.append(el("p", { class: "muted" }, "Сейчас сессии нет. Начать можно кнопкой ▶ у задачи или без задачи:"),
+        el("div", { class: "form" },
+          ...[["free", "Свободно"], ["pomodoro", "Помодоро"], ["short_start", "Короткий старт"]].map(([m, n]) =>
+            el("button", { class: m === "free" ? "" : "ghost", onclick: async () => {
+              try { await api("session/start", { mode: m }); show("work"); }
+              catch (e) { toast(e.message + (e.data && e.data.missing ? " Задай их в «Настройках»." : "")); }
+            } }, n))));
+      return;
+    }
+    const act = (what, extra) => guard(() => api("session/" + what, Object.assign({ session_id: d.id }, extra || {}))).then(() => show("work"));
+    const PH = { work: "работа", overtime: "сверх плана", break: "перерыв", paused: "пауза", finished: "закончена" };
+    v.append(el("div", { class: "card" },
+      el("div", {}, d.task_title || "Без задачи"),
+      el("div", { class: "meta" }, (PH[d.phase] || d.phase) + (d.planned_minutes ? " · план " + d.planned_minutes + " мин" : "")),
+      el("div", { class: "timer", id: "timer" }, mmss(d.net_seconds))));
+    if (d.needs_outcome) {
+      v.append(el("h2", {}, "Чем закончилось?"), el("div", { class: "form" },
+        el("button", { class: "ghost", onclick: () => act("outcome", { outcome: "started" }) }, "Только начал"),
+        el("button", { class: "ghost", onclick: () => act("outcome", { outcome: "progressed" }) }, "Есть прогресс"),
+        el("button", { onclick: async () => {
+          let extra = { outcome: "completed" };
+          if (d.needs_criteria) {
+            const ok = await confirmBox("Критерий готовности:\n" + (d.done_criteria || "—") + "\n\nРезультат ему соответствует?");
+            if (!ok) return act("outcome", { outcome: "progressed" });
+            extra.criteria_confirmed = true;
+          }
+          act("outcome", extra);
+        } }, "Сделано")));
+      return;
+    }
+    const buttons = el("div", { class: "form" });
+    if (d.status === "active") buttons.append(el("button", { class: "ghost", onclick: () => act("pause") }, "Пауза"));
+    if (d.status === "paused") buttons.append(el("button", { class: "ghost", onclick: () => act("resume") }, "Продолжить"));
+    buttons.append(el("button", { onclick: () => act("stop") }, "Закончить"));
+    v.append(buttons);
+    if (d.status === "active") {
+      let sec = d.net_seconds;
+      tick = setInterval(() => { const t = document.getElementById("timer"); if (t) t.textContent = mmss(++sec); }, 1000);
+    }
+  },
+
+  async report(v, state) {
+    const days = (state && state.days) || 7;
+    const sel = el("select", { onchange: () => show("report", { days: +sel.value }) },
+      ...[[1, "Сегодня"], [7, "7 дней"], [14, "14 дней"], [30, "30 дней"]].map(([k, n]) => el("option", { value: k, selected: k === days }, n)));
+    v.append(el("h1", {}, "Отчёт"), sel);
+    const d = await api("report?days=" + days);
+    v.append(el("p", { class: "meta" }, "Период: " + d.period + ". Цифры считает бот, без ИИ."));
+    for (const dir of d.directions) {
+      v.append(el("div", { class: "card" }, el("b", {}, dir.title), ...dir.lines.map((l) => el("div", { class: "meta" }, l))));
+    }
+  },
+
+  async settings(v) {
+    const d = await api("settings");
+    v.append(el("h1", {}, "Настройки"));
+    if (!d.ready) { v.append(el("p", { class: "muted" }, "Сначала пройди настройку в чате: /start.")); return; }
+    const fields = [
+      ["timezone", "Часовой пояс (IANA)", "text"],
+      ["morning_time", "Утренний план", "time"], ["evening_time", "Вечерний итог", "time"],
+      ["weekly_review_time", "Время недельного обзора", "time"],
+      ["pre_task_lead_min", "Напомнить до задачи, мин", "number"],
+      ["start_delay_min", "Спросить, если не начал, через мин", "number"],
+      ["pomodoro_work_min", "Помодоро: работа, мин", "number"], ["pomodoro_break_min", "Помодоро: перерыв, мин", "number"],
+      ["short_start_min", "Короткий старт, мин", "number"],
+    ];
+    const inputs = {};
+    for (const [k, label, type] of fields) {
+      const i = el("input", { type, value: d[k] === null || d[k] === undefined ? "" : d[k], min: type === "number" ? "0" : null, max: type === "number" ? "240" : null });
+      inputs[k] = i;
+      v.append(el("div", { class: "set" }, el("label", {}, label), i));
+    }
+    const dow = el("select", {}, el("option", { value: "" }, "не задан"),
+      ...["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map((n, i) => el("option", { value: i, selected: d.weekly_review_dow === i }, n)));
+    v.append(el("div", { class: "set" }, el("label", {}, "День недельного обзора"), dow));
+    const notif = el("input", { type: "checkbox", checked: d.notifications_enabled });
+    v.append(el("div", { class: "set" }, el("label", {}, "Сообщения от бота включены"), notif));
+    const q = d.quiet_hours[0] || {};
+    const qs = el("input", { type: "time", value: q.start || "" }), qe = el("input", { type: "time", value: q.end || "" });
+    v.append(el("div", { class: "set" }, el("label", {}, "Тихие часы"), el("span", { class: "acts" }, qs, qe)));
+    if (d.quiet_hours.length > 1) v.append(el("p", { class: "meta" }, "Окон тихих часов несколько; здесь меняется первое, остальные — в чате."));
+    v.append(el("p", { class: "meta" }, d.pause_until ? "Пауза до " + d.pause_until : "Паузы нет"));
+    v.append(el("div", { class: "form" },
+      el("button", { class: "ghost", onclick: () => save({ pause_hours: 2 }) }, "Пауза 2 ч"),
+      el("button", { class: "ghost", onclick: () => save({ pause_hours: 24 }) }, "Пауза на день"),
+      d.pause_until && el("button", { class: "ghost", onclick: () => save({ pause_hours: 0 }) }, "Снять паузу")));
+    async function save(changes) { await guard(() => api("settings", changes)); toast("Сохранено"); show("settings"); }
+    v.append(el("div", { class: "form" }, el("button", { onclick: () => {
+      const ch = {};
+      for (const [k, , type] of fields) {
+        const raw = inputs[k].value.trim(), was = d[k] === null || d[k] === undefined ? "" : String(d[k]);
+        if (raw !== was) ch[k] = raw === "" ? null : (type === "number" ? Number(raw) : raw);
+      }
+      const dv = dow.value === "" ? null : Number(dow.value);
+      if (dv !== d.weekly_review_dow) ch.weekly_review_dow = dv;
+      if (notif.checked !== d.notifications_enabled) ch.notifications_enabled = notif.checked;
+      if ((qs.value || "") !== (q.start || "") || (qe.value || "") !== (q.end || "")) {
+        const rest = d.quiet_hours.slice(1);
+        ch.quiet_hours = qs.value && qe.value ? [{ start: qs.value, end: qe.value, days: q.days || null }, ...rest] : rest;
+      }
+      if (!Object.keys(ch).length) { toast("Изменений нет"); return; }
+      save(ch);
+    } }, "Сохранить")));
+    v.append(el("p", { class: "meta" }, "Стиль общения, память и ключи ИИ меняются в чате: /settings, /memory, /ai."));
+  },
+};
+
+function habitRow(h, after, canMark) {
+  canMark = canMark !== false;
+  const LBL = { done: "сделано", partial: "минимум", skipped: "пропуск", missed: "не сделано" };
+  const body = el("div", { class: "body" }, el("div", { class: "title" }, h.title),
+    el("div", { class: "meta" }, [h.time, h.target, h.status && "сегодня: " + (LBL[h.status] || h.status)].filter(Boolean).join(" · ")));
+  const acts = el("div", { class: "acts" });
+  if (canMark) {
+    const mark = (st) => guard(() => api("habits/" + h.id + "/mark", { status: st })).then(after);
+    acts.append(el("button", { class: "ghost", onclick: () => mark("skipped") }, "Пропуск"),
+      el("button", { class: "ghost", onclick: () => mark("partial") }, "Минимум"),
+      el("button", { onclick: () => mark("done") }, "✓"));
+  }
+  return el("div", { class: "row" + (h.status === "done" ? " done" : "") }, body, acts);
+}
+
+async function show(name, state) {
+  current = name;
+  if (tick) { clearInterval(tick); tick = null; }
+  for (const b of document.querySelectorAll("nav button")) b.classList.toggle("on", b.dataset.tab === name);
+  const v = document.getElementById("view");
+  const box = el("div", {});
+  try { await screens[name](box, state || {}); }
+  catch (e) { box.replaceChildren(el("p", { class: "muted" }, e.message)); }
+  if (current === name) v.replaceChildren(box);
+}
+
+const nav = document.getElementById("tabs");
+for (const [k, n] of TABS) nav.append(el("button", { "data-tab": k, onclick: () => show(k) }, n));
+show("day");
 </script>
 </body>
 </html>
