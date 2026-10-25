@@ -42,6 +42,7 @@ from procbot.services import actions, habits, sessions
 from procbot.services import tasks as task_service
 from procbot.services.profile import get_profile, update_profile
 from procbot.services.profile_hooks import after_profile_change
+from procbot.services.recurrence import RecurrenceError, parse_rule
 from procbot.timeutil import resolve_local
 
 MAX_TITLE = 500
@@ -138,6 +139,7 @@ async def task_create(request: web.Request, ctx: AppContext) -> web.Response:
                     planned_start_at=start,
                     due_date=H.parse_date(body.get("due_date"), "due_date"),
                     estimate_minutes=estimate or None,
+                    recurrence=_recurrence(body.get("recurrence")),
                 )
             )
         res = await actions.execute(s, ctx, action, origin=Actor.USER, op_key=f"miniapp:{op_key}")
@@ -145,6 +147,13 @@ async def task_create(request: web.Request, ctx: AppContext) -> web.Response:
     if res.status != actions.ExecStatus.APPLIED:
         return H.error(400, res.error or "Не удалось создать задачу.")
     return web.json_response({"status": "created", "result": res.result, "repeated": res.repeated})
+
+
+def _recurrence(raw: Any) -> dict[str, object] | None:
+    try:
+        return parse_rule(raw)
+    except RecurrenceError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 async def task_done(request: web.Request, ctx: AppContext) -> web.Response:
@@ -164,7 +173,10 @@ async def task_done(request: web.Request, ctx: AppContext) -> web.Response:
             s, ctx, task_id, actor=Actor.USER, criteria_confirmed=confirmed or None
         )
         status = str(task.status)
-    return web.json_response({"id": task_id, "status": status})
+        nxt = await task_service.next_occurrence_of(s, task_id)
+        tz = await task_service.owner_tz(s)
+        next_json = views.task_json(nxt, tz) if nxt is not None else None
+    return web.json_response({"id": task_id, "status": status, "next": next_json})
 
 
 async def task_progress(request: web.Request, ctx: AppContext) -> web.Response:

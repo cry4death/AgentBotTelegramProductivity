@@ -85,7 +85,9 @@
   .days7 { display: flex; gap: 4px; flex-wrap: wrap; }
   .days7 label { display: flex; align-items: center; gap: 3px; background: var(--bg2); border-radius: 8px; padding: 4px 8px; }
   #toast { position: fixed; left: 16px; right: 16px; bottom: 88px; padding: 10px 14px; border-radius: 12px;
-           background: var(--text); color: var(--bg); display: none; z-index: 9; }
+           background: var(--text); color: var(--bg); display: none; z-index: 9;
+           align-items: center; justify-content: space-between; gap: 10px; }
+  #toast button { background: transparent; color: var(--bg); font-weight: 600; padding: 4px 6px; flex: none; }
   @media (min-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
@@ -123,10 +125,12 @@ function el(tag, attrs, ...kids) {
   for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : String(k));
   return e;
 }
-function toast(text) {
+function toast(text, action, ms) {
   const t = document.getElementById("toast");
-  t.textContent = text; t.style.display = "block";
-  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 2800);
+  t.replaceChildren(el("span", {}, text));
+  if (action) t.append(el("button", { onclick: () => { t.style.display = "none"; clearTimeout(toast.h); action.run(); } }, action.label));
+  t.style.display = "flex";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), ms || (action ? 5000 : 2800));
 }
 function haptic(kind) { try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind || "success"); } catch (_) {} }
 function confirmBox(text) {
@@ -207,22 +211,75 @@ function refresh() { return show(current, currentState); }
 
 function taskMeta(t) {
   return [t.start && "в " + t.start, t.planned_date && !t.start && "на " + fmtDate(t.planned_date),
-    t.due && (t.due_is_hard ? "жёсткий срок " : "срок ") + t.due, t.estimate_min && "~" + t.estimate_min + " мин"]
+    t.due && (t.due_is_hard ? "жёсткий срок " : "срок ") + t.due, t.estimate_min && "~" + t.estimate_min + " мин",
+    t.recurrence_text && "🔁 " + t.recurrence_text]
     .filter(Boolean).join(" · ");
 }
 async function markDone(t) {
-  try { await api("tasks/" + t.id + "/done", {}); }
+  try { return await api("tasks/" + t.id + "/done", {}); }
   catch (e) {
     if (e.status === 409 && e.data && e.data.criteria) {
       const ok = await confirmBox("Критерий готовности:\n" + (e.data.done_criteria || "—") + "\n\nРезультат ему соответствует?");
       if (!ok) { toast("Не отмечено. Можно записать частичный прогресс."); return false; }
-      await api("tasks/" + t.id + "/done", { criteria_confirmed: true });
+      return await api("tasks/" + t.id + "/done", { criteria_confirmed: true });
     } else throw e;
   }
+}
+// "Готово" with a few seconds to take it back (and drop the next copy of a recurring task).
+async function finishTask(t, after) {
+  const r = await run(() => markDone(t));
+  if (!r || r === true) return false;
+  haptic(); if (after) after();
+  const next = r.next ? " · следующая " + (r.next.planned_date ? fmtDate(r.next.planned_date) : "создана") : "";
+  toast("Готово" + next, { label: "Отменить", run: async () => {
+    if (await run(() => api("tasks/" + t.id + "/status", { action: "undo_done" }), "Вернул в работу")) refresh();
+  } });
   return true;
+}
+// Delete is sent after the undo window; leaving the app sends it at once.
+const pendingDeletes = new Map();
+function flushDelete(id, keepalive) {
+  const p = pendingDeletes.get(id); if (!p) return;
+  clearTimeout(p.timer); pendingDeletes.delete(id);
+  const req = fetch(BASE + "tasks/" + id + "/status", { method: "POST", keepalive: !!keepalive,
+    headers: { Authorization: AUTH, "Content-Type": "application/json" }, body: JSON.stringify({ action: "delete" }) });
+  if (!keepalive) req.then((r) => { if (!r.ok) toast("Не удалось удалить"); refresh(); }).catch(() => { toast("Не удалось удалить"); refresh(); });
+}
+function deleteLater(id) {
+  pendingDeletes.set(id, { timer: setTimeout(() => flushDelete(id), 5000) });
+  refresh();
+  toast("Задача удалена", { label: "Отменить", run: () => { const p = pendingDeletes.get(id); if (p) { clearTimeout(p.timer); pendingDeletes.delete(id); refresh(); } } });
+}
+function flushAllDeletes() { for (const id of [...pendingDeletes.keys()]) flushDelete(id, true); }
+window.addEventListener("pagehide", flushAllDeletes);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushAllDeletes(); });
+
+// Repeat rule inputs: null = no repeat; shapes match services.recurrence.
+function recurInputs(rule) {
+  rule = rule || null;
+  const kind = !rule ? "none" : rule.type === "daily" ? (rule.every > 1 ? "every" : "daily") : rule.type;
+  const type = el("select", {}, ...[["none", "Не повторять"], ["daily", "Каждый день"], ["every", "Каждые N дней"],
+    ["weekly", "По дням недели"], ["monthly", "Каждый месяц"]].map(([k, n]) => el("option", { value: k, selected: kind === k }, n)));
+  const every = el("input", { type: "number", min: "2", max: "365", value: rule && rule.every > 1 ? rule.every : 2 });
+  const days = WD_MON.map((n, i) => el("input", { type: "checkbox", value: i, checked: rule && rule.type === "weekly" && rule.days.includes(i) }));
+  const daysBox = el("div", { class: "days7" }, ...days.map((c, i) => el("label", {}, c, WD_MON[i])));
+  const mday = el("input", { type: "number", min: "1", max: "31", value: rule && rule.type === "monthly" ? rule.day : Number(todayIso().slice(8, 10)) });
+  const extra = el("div", {});
+  const upd = () => extra.replaceChildren(type.value === "every" ? field("Через сколько дней", every)
+    : type.value === "weekly" ? daysBox : type.value === "monthly" ? field("Число месяца", mday) : "");
+  type.addEventListener("change", upd); upd();
+  return { nodes: [field("Повтор", type), extra], value: () => {
+    const k = type.value;
+    if (k === "daily") return { type: "daily", every: 1 };
+    if (k === "every") return { type: "daily", every: Number(every.value) || 2 };
+    if (k === "weekly") return { type: "weekly", days: days.filter((c) => c.checked).map((c) => Number(c.value)) };
+    if (k === "monthly") return { type: "monthly", day: Number(mday.value) || 1 };
+    return null;
+  } };
 }
 function taskRow(t, opts) {
   opts = opts || {};
+  if (pendingDeletes.has(t.id)) return el("div", { hidden: true });
   const done = t.status === "done";
   const body = el("div", { class: "body", onclick: () => openTask(t.id) },
     el("div", { class: "title" }, t.title),
@@ -233,7 +290,7 @@ function taskRow(t, opts) {
   if (!done && !["cancelled", "someday"].includes(t.status)) {
     acts.append(
       el("button", { class: "ghost", title: "Начать работу", onclick: () => startWork(t.id) }, "▶"),
-      el("button", { onclick: async () => { if (await run(() => markDone(t)) === true) { toast("Готово"); haptic(); refresh(); } } }, "✓"));
+      el("button", { onclick: () => finishTask(t, refresh) }, "✓"));
   }
   return el("div", { class: "row" + (done ? " done" : "") }, body, acts);
 }
@@ -257,10 +314,11 @@ async function openTask(id) {
     const hard = el("input", { type: "checkbox", checked: t.due_is_hard });
     const goal = el("select", {}, el("option", { value: "" }, "без цели"),
       ...t.goals.map((g) => el("option", { value: g.id, selected: g.id === t.goal_id }, g.title)));
+    const recur = t.parent_id ? null : recurInputs(t.recurrence);
     box.append(field("Название", title), field("Описание", descr), field("Критерий готовности (необязательно)", crit),
       el("div", { class: "two" }, field("День", pday), field("Время", ptime)),
       el("div", { class: "two" }, field("Срок", due), field("Оценка, мин", est)),
-      el("label", { class: "check" }, hard, "Срок жёсткий"), field("Цель", goal));
+      el("label", { class: "check" }, hard, "Срок жёсткий"), field("Цель", goal), ...(recur ? recur.nodes : []));
     box.append(el("div", { class: "form" }, el("button", { onclick: async () => {
       const ch = {};
       if (title.value.trim() !== t.title) ch.title = title.value;
@@ -270,6 +328,7 @@ async function openTask(id) {
       if ((pday.value || "") !== (t.planned_day || "") || (ptime.value || "") !== (t.planned_time || "")) { ch.planned_day = pday.value || null; ch.planned_time = ptime.value || null; }
       if ((due.value || "") !== (t.due_date || "") || hard.checked !== t.due_is_hard) { ch.due_date = due.value || null; ch.due_is_hard = hard.checked; }
       if (String(goal.value) !== String(t.goal_id || "")) ch.goal_id = goal.value ? Number(goal.value) : null;
+      if (recur && JSON.stringify(recur.value()) !== JSON.stringify(t.recurrence || null)) ch.recurrence = recur.value();
       if (!Object.keys(ch).length) { toast("Изменений нет"); return; }
       if (await run(() => api("tasks/" + id + "/edit", ch), "Сохранено")) after();
     } }, "Сохранить")));
@@ -278,7 +337,7 @@ async function openTask(id) {
     box.append(el("h2", {}, "Шаги"));
     for (const c of t.children) box.append(el("div", { class: "row" + (c.status === "done" ? " done" : "") },
       el("div", { class: "body", onclick: () => { close(); openTask(c.id); } }, el("div", { class: "title" }, c.title), taskMeta(c) && el("div", { class: "meta" }, taskMeta(c))),
-      c.status !== "done" && el("div", { class: "acts" }, el("button", { onclick: async () => { if (await run(() => markDone(c)) === true) { close(); openTask(id); } } }, "✓"))));
+      c.status !== "done" && el("div", { class: "acts" }, el("button", { onclick: () => finishTask(c, () => { close(); openTask(id); }) }, "✓"))));
     const step = el("input", { type: "text", placeholder: "Новый шаг" });
     box.append(el("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); if (!step.value.trim()) return;
       if (await run(() => api("tasks", { title: step.value, parent_id: id, op_key: opKey() }), "Шаг добавлен")) { close(); openTask(id); } } },
@@ -290,17 +349,17 @@ async function openTask(id) {
     const acts = el("div", { class: "form" });
     if (open) {
       acts.append(el("button", { onclick: () => startWork(id) }, "▶ Начать работу"),
-        el("button", { class: "ghost", onclick: async () => {
-          if (await run(() => markDone(t)) === true) { toast("Готово"); haptic(); after(); } } }, "✓ Готово"),
+        el("button", { class: "ghost", onclick: () => finishTask(t, after) }, "✓ Готово"),
         el("button", { class: "ghost", onclick: async () => {
           const note = await ask("Что уже сделано?", "Например: собрал цифры за квартал");
           if (note === null) return;
           if (await run(() => api("tasks/" + id + "/progress", { note }), "Прогресс записан, задача открыта")) after(); } }, "½ Частично"),
+        el("button", { class: "ghost", onclick: () => { close(); openRetro(id); } }, "🕓 Уже делал"),
         st("tomorrow", "На завтра"), st("backlog", "В бэклог"), st("someday", "Когда-нибудь"), st("cancel", "Отменить"));
     } else acts.append(st("reopen", "Вернуть в работу"));
     acts.append(el("button", { class: "danger", onclick: async () => {
       if (!(await confirmBox("Удалить задачу «" + t.title + "» насовсем?"))) return;
-      if (await run(() => api("tasks/" + id + "/status", { action: "delete" }), "Удалено")) after(); } }, "Удалить"));
+      close(); deleteLater(id); } }, "Удалить"));
     box.append(acts);
 
     if (open) {
@@ -375,13 +434,14 @@ function addTaskForm(box, close) {
   const time = el("input", { type: "time" });
   const est = el("input", { type: "number", min: "0", max: "1440", placeholder: "мин" });
   const due = el("input", { type: "date" });
+  const recur = recurInputs(null);
   const key = opKey();
   box.append(field("Название", title), el("div", { class: "two" }, field("День (пусто — бэклог)", day), field("Время", time)),
-    el("div", { class: "two" }, field("Срок", due), field("Оценка, мин", est)),
+    el("div", { class: "two" }, field("Срок", due), field("Оценка, мин", est)), ...recur.nodes,
     el("div", { class: "form" }, el("button", { onclick: async () => {
       if (!title.value.trim()) { toast("Нужно название"); return; }
       const r = await run(() => api("tasks", { title: title.value, planned_date: day.value || null, planned_time: time.value || null,
-        due_date: due.value || null, estimate_minutes: est.value ? Number(est.value) : null, op_key: key }), "Задача добавлена");
+        due_date: due.value || null, estimate_minutes: est.value ? Number(est.value) : null, recurrence: recur.value(), op_key: key }), "Задача добавлена");
       if (r) { close(); refresh(); }
     } }, "Добавить")));
   setTimeout(() => title.focus(), 50);
@@ -442,6 +502,51 @@ function addGoalForm(box, close) {
       const milestones = ms.value.split("\n").map((x) => x.trim()).filter(Boolean);
       if (await run(() => api("goals", { title: title.value, measurable_outcome: outcome.value || null, horizon_date: horizon.value || null, milestones, op_key: key }), "Цель добавлена")) { close(); show("goals"); }
     } }, "Добавить")));
+}
+
+// ------------------------------------------------------------------ retro entry
+
+async function openRetro(taskId) {
+  let tasks = [];
+  try { tasks = (await api("tasks?view=today")).tasks; } catch (_) { /* the task can still be chosen as "none" */ }
+  if (taskId && !tasks.some((x) => x.id === taskId)) {
+    try { const t = await api("tasks/" + taskId); tasks.unshift(t); } catch (_) {}
+  }
+  openSheet("Записать задним числом", (box, close) => {
+    const task = el("select", {}, el("option", { value: "" }, "без задачи"),
+      ...tasks.map((t) => el("option", { value: t.id, selected: t.id === taskId }, t.title)));
+    const day = el("input", { type: "date", value: todayIso(), max: todayIso() });
+    const start = el("input", { type: "time" });
+    const end = el("input", { type: "time" });
+    const approx = el("input", { type: "checkbox" });
+    const conf = el("select", {}, ...[["high", "точно"], ["medium", "примерно"], ["low", "не уверен"]].map(([k, n]) => el("option", { value: k }, n)));
+    approx.addEventListener("change", () => { if (approx.checked && conf.value === "high") conf.value = "medium"; });
+    const note = el("input", { type: "text", placeholder: "Что сделал (необязательно)", maxlength: "1000" });
+    box.append(el("p", { class: "meta" }, "Для работы, которую забыл отметить. Запись помечается как ретро, не как точная."),
+      field("Задача", task), field("День", day), el("div", { class: "two" }, field("Начало", start), field("Конец", end)),
+      el("label", { class: "check" }, approx, "Время примерное"), field("Насколько уверен", conf), field("Заметка", note));
+    const result = el("div", {});
+    box.append(el("div", { class: "form" }, el("button", { onclick: async () => {
+      if (!start.value || !end.value) { toast("Укажи начало и конец"); return; }
+      const r = await run(() => api("retro", { task_id: task.value ? Number(task.value) : null, day: day.value || null, start: start.value,
+        end: end.value, approximate: approx.checked, confidence: conf.value, note: note.value || null }));
+      if (!r) return;
+      haptic(); toast((r.repeated ? "Уже записано: " : "Записал: ") + r.minutes + " мин");
+      if (!r.needs_outcome) { close(); refresh(); return; }
+      const outcome = async (o, extra) => { if (await run(() => api("session/outcome", Object.assign({ session_id: r.session_id, outcome: o }, extra || {})), "Сохранено")) { close(); refresh(); } };
+      result.replaceChildren(el("h2", {}, "Чем закончилось?"), el("div", { class: "form" },
+        el("button", { class: "ghost", onclick: () => outcome("started") }, "Только начал"),
+        el("button", { class: "ghost", onclick: () => outcome("progressed") }, "Есть прогресс"),
+        el("button", { onclick: async () => {
+          if (r.needs_criteria) {
+            const ok = await confirmBox("Критерий готовности:\n" + (r.done_criteria || "—") + "\n\nРезультат ему соответствует?");
+            if (!ok) return outcome("progressed");
+            return outcome("completed", { criteria_confirmed: true });
+          }
+          outcome("completed");
+        } }, "Сделано")));
+    } }, "Записать")), result);
+  });
 }
 
 // ------------------------------------------------------------------ habits
@@ -505,7 +610,7 @@ const screens = {
   async tasks(v, state) {
     const view = state.view || "today";
     const seg = el("div", { class: "seg" }, ...[["today", "Сегодня"], ["upcoming", "Скоро"], ["backlog", "Бэклог"], ["someday", "Потом"], ["done", "Сделано"]]
-      .map(([k, n]) => el("button", { class: k === view ? "on" : "", onclick: () => show("tasks", { view: k }) }, n)));
+      .map(([k, n]) => el("button", { class: k === view ? "on" : "", onclick: () => show("tasks", { view: k, q: currentState.q }) }, n)));
     const title = el("input", { type: "text", placeholder: "Быстро добавить задачу", maxlength: "500" });
     const key = opKey();
     const add = el("form", { class: "form", onsubmit: async (ev) => {
@@ -513,15 +618,33 @@ const screens = {
       if (!title.value.trim()) return;
       if (await run(() => api("tasks", { title: title.value, planned_date: view === "today" ? todayIso() : null, op_key: key }), "Задача добавлена")) show("tasks", { view });
     } }, title, el("button", { type: "submit" }, "Добавить"));
-    v.append(el("h1", {}, "Задачи"), seg, add);
-    const d = await api("tasks?view=" + encodeURIComponent(view));
-    if (!d.tasks.length) v.append(el("p", { class: "muted" }, "Здесь пусто."));
+    const q = el("input", { type: "search", placeholder: "🔍 Поиск по всем задачам", value: state.q || "" });
+    const list = el("div", {});
+    v.append(el("h1", {}, "Задачи"), q, seg, add, list);
     const render = (t) => {
       const box = el("div", {}, taskRow(t));
       if (t.children && t.children.length) box.append(el("div", { class: "children" }, ...t.children.map(render)));
       return box;
     };
-    for (const t of d.tasks) v.append(render(t));
+    const ST = { todo: "", in_progress: "в работе", done: "сделана", cancelled: "отменена", someday: "когда-нибудь" };
+    const fill = async () => {
+      const text = q.value.trim();
+      currentState = Object.assign({}, currentState, { q: text });
+      if (text) {
+        const r = await api("search?q=" + encodeURIComponent(text));
+        if (q.value.trim() !== text) return; // a newer query is on its way
+        list.replaceChildren(...(r.tasks.length ? r.tasks.map((t) => {
+          const row = taskRow(t);
+          const b = row.querySelector(".body"); if (b && ST[t.status]) b.append(el("div", { class: "meta" }, ST[t.status]));
+          return row;
+        }) : [el("p", { class: "muted" }, "Ничего не нашёл.")]), r.more ? el("p", { class: "meta" }, "Показаны первые 50.") : "");
+        return;
+      }
+      const d = await api("tasks?view=" + encodeURIComponent(view));
+      list.replaceChildren(...(d.tasks.length ? d.tasks.map(render) : [el("p", { class: "muted" }, "Здесь пусто.")]));
+    };
+    q.addEventListener("input", () => { clearTimeout(q.h); q.h = setTimeout(() => fill().catch((e) => toast(e.message)), 300); });
+    await fill();
   },
 
   async inbox(v) {
@@ -620,7 +743,8 @@ const screens = {
             el("button", { class: m === "free" ? "" : "ghost", onclick: async () => {
               try { await api("session/start", { mode: m }); show("work"); }
               catch (e) { toast(e.message + (e.data && e.data.missing ? " Задай их в «Настройках»." : "")); }
-            } }, n))));
+            } }, n))),
+        el("div", { class: "form" }, el("button", { class: "ghost", onclick: () => openRetro(null) }, "🕓 Записать задним числом")));
       return;
     }
     const act = async (what, extra) => { if (await run(() => api("session/" + what, Object.assign({ session_id: d.id }, extra || {})))) { haptic(); show("work"); } };

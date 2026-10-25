@@ -9,7 +9,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from sqlalchemy import select
 
-from procbot.db.models import Goal, Habit, PendingApproval, Task
+from procbot.db.models import Goal, Habit, PendingApproval, Task, WorkSession
 from procbot.domain.actions import TaskDraft
 from procbot.domain.enums import Actor
 from procbot.http_server import build_app
@@ -223,3 +223,73 @@ async def test_calendar_block_is_only_a_card(ctx, client):
     assert st == 400 and "Calendar" in data["error"]
     async with ctx.db.transaction() as s:
         assert (await s.execute(select(PendingApproval))).scalars().all() == []
+
+
+async def test_recurring_task_from_the_app_with_undo(ctx, client):
+    st, data = await _post(
+        client,
+        "tasks",
+        {
+            "title": "Вынести мусор",
+            "planned_date": "2026-10-26",
+            "recurrence": {"type": "weekly", "days": [0, 3]},
+            "op_key": "rec-1234567",
+        },
+    )
+    assert st == 200, data
+    task_id = data["result"]["task_id"]
+    _, detail = await _get(client, f"tasks/{task_id}")
+    assert detail["recurrence_text"] == "по пн, чт"
+    st, done = await _post(client, f"tasks/{task_id}/done")
+    assert st == 200 and done["next"]["planned_date"] == "2026-10-29"
+    assert done["next"]["recurrence"] == {"type": "weekly", "days": [0, 3]}
+    st, undo = await _post(client, f"tasks/{task_id}/status", {"action": "undo_done"})
+    assert st == 200 and undo["status"] == "todo"
+    async with ctx.db.transaction() as s:
+        assert [t.id for t in (await s.execute(select(Task))).scalars()] == [task_id]
+    bad = await _post(
+        client, f"tasks/{task_id}/edit", {"recurrence": {"type": "monthly", "day": 40}}
+    )
+    assert bad[0] == 400
+    ok = await _post(client, f"tasks/{task_id}/edit", {"recurrence": None})
+    assert ok[0] == 200 and ok[1]["recurrence"] is None
+
+
+async def test_search_ignores_case_in_russian(ctx, client):
+    await _task(ctx, "Квартальный ОТЧЁТ")
+    done_id = await _task(ctx, "Отчёт за сентябрь")
+    await _task(ctx, "Купить хлеб", description="и молоко")
+    async with ctx.db.transaction() as s:
+        await task_service.complete_task(s, ctx, done_id, actor=Actor.USER)
+    _, data = await _get(client, "search?q=отчёт")
+    titles = [t["title"] for t in data["tasks"]]
+    assert titles == ["Квартальный ОТЧЁТ", "Отчёт за сентябрь"]  # open first, done too
+    _, data = await _get(client, "search?q=МОЛОКО")
+    assert [t["title"] for t in data["tasks"]] == ["Купить хлеб"]
+    _, data = await _get(client, "search?q=")
+    assert data["tasks"] == []
+
+
+async def test_retro_entry_from_the_app(ctx, client):
+    task_id = await _task(ctx, done_criteria="Отправлен")
+    body = {
+        "task_id": task_id,
+        "day": "2026-10-26",
+        "start": "07:00",
+        "end": "08:30",
+        "approximate": True,
+    }
+    st, data = await _post(client, "retro", body)
+    assert st == 200, data
+    assert data["minutes"] == 90 and data["needs_outcome"] and data["needs_criteria"]
+    again = await _post(client, "retro", body)
+    assert again[1]["repeated"] is True and again[1]["session_id"] == data["session_id"]
+    async with ctx.db.transaction() as s:
+        ws = await s.get(WorkSession, data["session_id"])
+        assert ws is not None and ws.time_source == "approximate" and ws.confidence == "medium"
+    st, _ = await _post(
+        client, "session/outcome", {"session_id": data["session_id"], "outcome": "progressed"}
+    )
+    assert st == 200
+    future = await _post(client, "retro", {**body, "start": "10:00", "end": "11:00"})
+    assert future[0] == 400 and future[1]["error"] == "Конец ещё не наступил."

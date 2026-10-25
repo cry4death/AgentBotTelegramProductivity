@@ -18,6 +18,7 @@ from procbot.services import calendar as cal
 from procbot.services import tasks as task_service
 from procbot.services.dayview import DayView, build_day_view
 from procbot.services.preferences import flag
+from procbot.services.recurrence import rule_text
 from procbot.timeutil import fmt_local, local_date, local_day_bounds, to_local
 
 # A finished session still waits for "what came out of it" this long.
@@ -48,6 +49,8 @@ def task_json(t: Task, tz: str, *, next_step: Task | None = None) -> dict[str, A
         "done_criteria": t.done_criteria,
         "progress_note": t.progress_note,
         "next_step": next_step.title if next_step is not None else None,
+        "recurrence": t.recurrence,
+        "recurrence_text": rule_text(t.recurrence),
     }
 
 

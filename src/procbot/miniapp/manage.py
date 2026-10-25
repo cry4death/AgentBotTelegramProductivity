@@ -18,13 +18,29 @@ from sqlalchemy import select
 
 from procbot.ai import AIUnavailable
 from procbot.context import AppContext
-from procbot.db.models import Milestone, PendingApproval, PlanRevision, TaskEvent
+from procbot.db.models import Milestone, PendingApproval, PlanRevision, Task, TaskEvent, WorkSession
 from procbot.domain.actions import CreateGoal, CreateHabit
-from procbot.domain.enums import Actor, ApprovalStatus, EntityStatus, MemoryStatus
+from procbot.domain.enums import (
+    Actor,
+    ApprovalStatus,
+    EntityStatus,
+    MemoryStatus,
+    SessionStatus,
+    TimeSource,
+)
 from procbot.miniapp import http as H
 from procbot.miniapp import views
 from procbot.miniapp.http import CtxKey
-from procbot.services import actions, approvals, capture, goals, habits, memory, planning
+from procbot.services import (
+    actions,
+    approvals,
+    capture,
+    goals,
+    habits,
+    memory,
+    planning,
+    sessions,
+)
 from procbot.services import calendar as cal
 from procbot.services import tasks as task_service
 from procbot.timeutil import fmt_local, resolve_local
@@ -141,6 +157,8 @@ async def task_edit(request: web.Request, ctx: AppContext) -> web.Response:
         if "estimate_minutes" in body:
             est = H.parse_minutes(body["estimate_minutes"], "estimate_minutes", high=24 * 60)
             fields["estimate_minutes"] = est or None
+        if "recurrence" in body:
+            fields["recurrence"] = body["recurrence"]  # validated by the task service
         if fields:
             await task_service.update_task(s, ctx, task_id, actor=Actor.USER, **fields)
         if "planned_day" in body or "planned_time" in body:
@@ -194,6 +212,8 @@ async def task_status(request: web.Request, ctx: AppContext) -> web.Response:
             await task_service.defer_to_someday(s, ctx, task_id, actor=Actor.USER)
         elif what == "reopen":
             await task_service.reopen_task(s, ctx, task_id, actor=Actor.USER)
+        elif what == "undo_done":
+            await task_service.undo_complete(s, ctx, task_id, actor=Actor.USER)
         elif what == "backlog":
             await task_service.move_to_backlog(s, ctx, task_id, actor=Actor.USER)
         elif what == "tomorrow":
@@ -619,8 +639,119 @@ async def memory_add(request: web.Request, ctx: AppContext) -> web.Response:
 # --------------------------------------------------------------------------- wiring
 
 
+# --------------------------------------------------------------------------- search
+
+
+SEARCH_LIMIT = 50
+
+
+async def task_search(request: web.Request, ctx: AppContext) -> web.Response:
+    """Find tasks by words in the title or description, any status. Matching is
+    done in Python: SQLite LIKE ignores case only for Latin letters."""
+    words = str(request.query.get("q") or "").casefold().split()
+    if not words:
+        return web.json_response({"tasks": []})
+    async with ctx.db.transaction() as s:
+        tz = await task_service.owner_tz(s)
+        rows = (await s.execute(select(Task).order_by(Task.updated_at.desc()))).scalars()
+        found = [
+            t
+            for t in rows
+            if all(w in f"{t.title} {t.description or ''}".casefold() for w in words)
+        ]
+        found.sort(key=lambda t: (not task_service.is_open(t),))
+        out = [views.task_json(t, tz) for t in found[:SEARCH_LIMIT]]
+    return web.json_response({"tasks": out, "more": len(found) > SEARCH_LIMIT})
+
+
+# --------------------------------------------------------------------------- retro entry
+
+
+RETRO_ERRORS = {
+    "end must be after start": "Конец раньше начала.",
+    "end is in the future": "Конец ещё не наступил.",
+    "session longer than 24 hours": "Больше 24 часов.",
+}
+
+
+async def retro_create(request: web.Request, ctx: AppContext) -> web.Response:
+    """Work reported afterwards (scenario F), like /retro in the chat: kept as
+    retro/approximate with a confidence and a correction journal entry."""
+    body = await H.body(request)
+    task_id = body.get("task_id")
+    approximate = body.get("approximate") is True
+    confidence = body.get("confidence") or ("medium" if approximate else "high")
+    if confidence not in sessions.CONFIDENCE_VALUES:
+        raise ValueError("Уверенность: high, medium или low.")
+    start_at = H.parse_hhmm(body.get("start"), "start")
+    end_at = H.parse_hhmm(body.get("end"), "end")
+    if start_at is None or end_at is None:
+        raise ValueError("Укажи начало и конец.")
+    note = _text(body.get("note"), 1000) or None
+    async with ctx.db.transaction() as s:
+        tz = await task_service.owner_tz(s)
+        day = H.parse_date(body.get("day"), "day") or await task_service.local_today(s, ctx)
+        start, end = resolve_local(day, start_at, tz), resolve_local(day, end_at, tz)
+        if end <= start:  # "23:30–00:30" ends the next day
+            end = resolve_local(day + timedelta(days=1), end_at, tz)
+        tid = int(task_id) if task_id else None
+        task = await task_service.require_task(s, tid) if tid is not None else None
+        source = TimeSource.APPROXIMATE if approximate else TimeSource.RETRO
+        same = (
+            await s.execute(
+                select(WorkSession).where(
+                    WorkSession.task_id.is_(None) if tid is None else WorkSession.task_id == tid,
+                    WorkSession.started_at == start,
+                    WorkSession.ended_at == end,
+                    WorkSession.time_source == str(source),
+                )
+            )
+        ).scalar()
+        repeated = same is not None
+        if same is None:
+            planned = (
+                await s.execute(
+                    select(WorkSession.id)
+                    .where(
+                        WorkSession.task_id == tid,
+                        WorkSession.status == str(SessionStatus.UNCONFIRMED),
+                    )
+                    .order_by(WorkSession.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar()
+            try:
+                same = await sessions.create_retro_session(
+                    s,
+                    ctx,
+                    task_id=tid,
+                    started_at=start,
+                    ended_at=end,
+                    time_source=source,
+                    confidence=confidence,
+                    note=note,
+                    session_id=planned if tid is not None else None,
+                )
+            except ValueError as exc:
+                raise ValueError(RETRO_ERRORS.get(str(exc), "Неверное время.")) from exc
+        pauses = await sessions.load_pauses(s, same.id)
+        minutes = round(sessions.net_seconds(same, pauses, ctx.clock.now()) / 60)
+        data = {
+            "session_id": same.id,
+            "task_id": tid,
+            "minutes": minutes,
+            "needs_outcome": tid is not None and same.outcome is None,
+            "needs_criteria": task is not None and task_service.requires_criteria_check(task),
+            "done_criteria": task.done_criteria if task is not None else None,
+            "repeated": repeated,
+        }
+    return web.json_response(data)
+
+
 def add_manage_routes(app: web.Application, key: CtxKey) -> None:
     r = app.router
+    r.add_get("/miniapp/api/search", H.route(key, task_search))
+    r.add_post("/miniapp/api/retro", H.route(key, retro_create))
     r.add_get("/miniapp/api/tasks/{task_id}", H.route(key, task_detail))
     r.add_post("/miniapp/api/tasks/{task_id}/edit", H.route(key, task_edit))
     r.add_post("/miniapp/api/tasks/{task_id}/status", H.route(key, task_status))
