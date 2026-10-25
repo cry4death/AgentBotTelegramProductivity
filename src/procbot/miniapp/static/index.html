@@ -2,69 +2,804 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Мой день</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    margin: 0; padding: 16px; font: 15px/1.4 system-ui, sans-serif;
-    background: var(--tg-theme-bg-color, #fff); color: var(--tg-theme-text-color, #111);
+  :root {
+    color-scheme: light dark;
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f3f5);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #777777);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: var(--tg-theme-destructive-text-color, #d33b3b);
   }
-  h1 { font-size: 20px; margin: 0 0 12px; }
-  h2 { font-size: 14px; margin: 20px 0 8px; color: var(--tg-theme-hint-color, #777); text-transform: uppercase; }
-  .task { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0;
-          border-bottom: 1px solid var(--tg-theme-secondary-bg-color, #eee); }
-  .task .body { flex: 1; min-width: 0; }
-  .meta, .step { font-size: 13px; color: var(--tg-theme-hint-color, #777); }
-  button { border: 0; border-radius: 8px; padding: 6px 10px; font: inherit;
-           background: var(--tg-theme-button-color, #2481cc); color: var(--tg-theme-button-text-color, #fff); }
-  .done .title { text-decoration: line-through; opacity: .6; }
-  #msg { color: var(--tg-theme-hint-color, #777); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tg]) { --bg: #17191c; --bg2: #23262b; --text: #eceff3; --hint: #8b929b; }
+  }
+  * { box-sizing: border-box; }
+  html, body { overflow-x: hidden; }
+  body { margin: 0; font: 15px/1.4 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--bg2); }
+  nav { display: flex; gap: 4px; overflow-x: auto; padding: 8px 12px; scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { flex: none; background: var(--bg2); color: var(--text); position: relative; }
+  nav button.on { background: var(--btn); color: var(--btn-text); }
+  .badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px;
+           background: var(--danger); color: #fff; font-size: 12px; line-height: 18px; text-align: center; }
+  main { padding: 12px 16px 96px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  h2 { font-size: 13px; margin: 20px 0 6px; color: var(--hint); text-transform: uppercase; letter-spacing: .02em; }
+  button { border: 0; border-radius: 10px; padding: 7px 12px; font: inherit; cursor: pointer;
+           background: var(--btn); color: var(--btn-text); }
+  button.ghost { background: var(--bg2); color: var(--text); }
+  button.danger { background: transparent; color: var(--danger); }
+  button:disabled { opacity: .5; }
+  input, select, textarea { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid transparent;
+                            background: var(--bg2); color: var(--text); min-width: 0; width: 100%; }
+  textarea { min-height: 72px; resize: vertical; }
+  input[type=checkbox] { width: auto; }
+  input[type=range] { padding: 0; }
+  .row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--bg2); }
+  .row .body { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .meta { font-size: 13px; color: var(--hint); }
+  .done > .body .title { text-decoration: line-through; opacity: .6; }
+  .card { background: var(--bg2); border-radius: 14px; padding: 12px 14px; margin: 10px 0; }
+  .card input, .card select, .card textarea { background: var(--bg); }
+  .children { margin-left: 16px; border-left: 2px solid var(--bg2); padding-left: 10px; }
+  .form { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; align-items: center; }
+  .form > input[type=text], .form > textarea { flex: 1 1 200px; }
+  .form > input[type=date], .form > input[type=time], .form > input[type=number], .form > select { flex: 0 1 150px; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .day { background: var(--bg2); border-radius: 12px; padding: 10px 12px; }
+  .day.today { outline: 2px solid var(--btn); }
+  .ev { font-size: 13px; color: var(--hint); }
+  .bar { height: 6px; border-radius: 3px; background: var(--bg); overflow: hidden; margin: 6px 0; }
+  .bar > i { display: block; height: 100%; background: var(--btn); }
+  .ms { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; cursor: pointer; }
+  .ms .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--btn); flex: none; }
+  .ms.done .dot { background: var(--btn); }
+  .ms.done .t { text-decoration: line-through; opacity: .7; }
+  .ms.key .dot { border-radius: 3px; }
+  .timer { font-size: 40px; font-variant-numeric: tabular-nums; margin: 8px 0; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+  .field > span { font-size: 13px; color: var(--hint); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  .plan { white-space: pre-wrap; font-size: 14px; }
+  .muted { color: var(--hint); }
+  .fab { position: fixed; right: 16px; bottom: 20px; width: 56px; height: 56px; border-radius: 28px; font-size: 28px;
+         line-height: 1; box-shadow: 0 4px 14px rgba(0,0,0,.25); z-index: 3; }
+  .sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 5; display: flex; align-items: flex-end; justify-content: center; }
+  .sheet { background: var(--bg); width: 100%; max-width: 720px; max-height: 92vh; overflow-y: auto;
+           border-radius: 18px 18px 0 0; padding: 14px 16px 28px; }
+  .sheet .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .sheet .top h1 { margin: 0; }
+  .seg { display: flex; gap: 4px; margin: 10px 0; overflow-x: auto; scrollbar-width: none; }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg button { flex: 1 0 auto; background: var(--bg2); color: var(--text); }
+  .seg button.on { background: var(--btn); color: var(--btn-text); }
+  .days7 { display: flex; gap: 4px; flex-wrap: wrap; }
+  .days7 label { display: flex; align-items: center; gap: 3px; background: var(--bg2); border-radius: 8px; padding: 4px 8px; }
+  #toast { position: fixed; left: 16px; right: 16px; bottom: 88px; padding: 10px 14px; border-radius: 12px;
+           background: var(--text); color: var(--bg); display: none; z-index: 9; }
+  @media (min-width: 640px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
 </head>
 <body>
-<h1 id="head">Мой день</h1>
-<div id="msg">Загружаю…</div>
-<div id="list"></div>
+<header><nav id="tabs"></nav></header>
+<main id="view"><p class="muted">Загружаю…</p></main>
+<button class="fab" id="fab" aria-label="Добавить">+</button>
+<div id="toast"></div>
 <script>
+"use strict";
 const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
-const auth = { Authorization: "tma " + (tg ? tg.initData : "") };
-const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+if (tg) { tg.ready(); tg.expand(); document.documentElement.setAttribute("data-tg", ""); }
+const AUTH = "tma " + (tg ? tg.initData : "");
+// "/miniapp" and "/miniapp/" both resolve API calls to "/miniapp/api/...".
+const BASE = location.pathname.replace(/\/?$/, "/") + "api/";
 
-async function load() {
-  const msg = document.getElementById("msg"), list = document.getElementById("list");
-  let data;
-  try {
-    const r = await fetch("api/day", { headers: auth });
-    if (!r.ok) throw new Error(r.status === 401 || r.status === 403 ? "Откройте приложение из Telegram." : "Ошибка " + r.status);
-    data = await r.json();
-  } catch (e) { msg.textContent = e.message; return; }
-  document.getElementById("head").textContent = "Мой день · " + data.day.split("-").reverse().slice(0, 2).join(".");
-  list.replaceChildren();
-  msg.textContent = data.sections.length ? "" : "На сегодня задач нет.";
-  for (const sec of data.sections) {
-    list.append(el("h2", null, sec.title));
-    for (const t of sec.tasks) {
-      const row = el("div", "task"), body = el("div", "body");
-      body.append(el("div", "title", t.title));
-      const meta = [t.start && "в " + t.start, t.due && "срок " + t.due, t.estimate_min && "~" + t.estimate_min + " мин"].filter(Boolean).join(" · ");
-      if (meta) body.append(el("div", "meta", meta));
-      if (t.next_step) body.append(el("div", "step", "Следующий шаг: " + t.next_step));
-      const btn = el("button", null, "Готово");
-      btn.onclick = async () => {
-        btn.disabled = true;
-        const r = await fetch("api/tasks/" + t.id + "/done", { method: "POST", headers: auth });
-        if (r.ok) { row.classList.add("done"); btn.remove(); } else { btn.disabled = false; }
-      };
-      row.append(body, btn);
-      list.append(row);
-    }
+const TABS = [
+  ["day", "День"], ["tasks", "Задачи"], ["inbox", "Подтвердить"], ["week", "Неделя"], ["goals", "Цели"],
+  ["habits", "Привычки"], ["work", "Работа"], ["report", "Отчёт"], ["memory", "Память"], ["settings", "Настройки"],
+];
+let current = "day", currentState = {}, tick = null;
+let serverToday = null; // owner's local date from the server (profile time zone)
+
+// ------------------------------------------------------------------ helpers
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "value") e.value = v === null || v === undefined ? "" : v;
+    else if (k === "checked") e.checked = !!v;
+    else if (v !== null && v !== undefined && v !== false) e.setAttribute(k, v === true ? "" : v);
   }
-  if (data.backlog_count) list.append(el("p", "meta", "В бэклоге: " + data.backlog_count));
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : String(k));
+  return e;
 }
-load();
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 2800);
+}
+function haptic(kind) { try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind || "success"); } catch (_) {} }
+function confirmBox(text) {
+  return new Promise((resolve) => {
+    if (tg && tg.showConfirm) tg.showConfirm(text, (ok) => resolve(!!ok));
+    else resolve(window.confirm(text));
+  });
+}
+function opKey() {
+  return (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).slice(0, 64);
+}
+async function api(path, body) {
+  const opts = { headers: { Authorization: AUTH } };
+  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(BASE + path, opts);
+  let data = null;
+  try { data = await r.json(); } catch (_) { data = null; }
+  if (r.status === 401 || r.status === 403) throw new Error("Откройте приложение из Telegram.");
+  if (!r.ok) { const e = new Error((data && data.error) || "Ошибка " + r.status); e.data = data; e.status = r.status; throw e; }
+  return data;
+}
+// Runs a write; shows the error and returns undefined instead of throwing.
+async function run(fn, okText) {
+  try { const r = await fn(); if (okText) { toast(okText); haptic(); } return r === undefined ? true : r; }
+  catch (e) { toast(e.message); haptic("error"); return undefined; }
+}
+function fmtDate(iso) { if (!iso) return ""; const [y, m, d] = iso.split("-"); return d + "." + m; }
+const WD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+const WD_MON = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
+function weekday(iso) { return WD[new Date(iso + "T12:00:00").getDay()]; }
+function mmss(sec) { const m = Math.floor(sec / 60), s = sec % 60, h = Math.floor(m / 60);
+  return (h ? h + ":" + String(m % 60).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0"); }
+function todayIso() {
+  if (serverToday) return serverToday;
+  const t = new Date();
+  return new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function field(label, input) { return el("label", { class: "field" }, el("span", {}, label), input); }
+
+// ------------------------------------------------------------------ bottom sheet
+
+let sheetStack = [];
+function openSheet(title, build, onClose) {
+  const bg = el("div", { class: "sheet-bg" });
+  const box = el("div", { class: "sheet" });
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true; bg.remove(); sheetStack = sheetStack.filter((x) => x !== close); updateBack();
+    if (onClose) onClose();
+  };
+  box.append(el("div", { class: "top" }, el("h1", {}, title), el("button", { class: "ghost", onclick: close }, "✕")));
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.append(box); document.body.append(bg);
+  sheetStack.push(close); updateBack();
+  build(box, close);
+  return close;
+}
+function updateBack() {
+  if (!tg || !tg.BackButton) return;
+  if (sheetStack.length) tg.BackButton.show(); else tg.BackButton.hide();
+}
+if (tg && tg.BackButton) tg.BackButton.onClick(() => { const c = sheetStack[sheetStack.length - 1]; if (c) c(); });
+function ask(title, placeholder, value, multiline) {
+  return new Promise((resolve) => {
+    let answer = null;
+    openSheet(title, (box, closeIt) => {
+      const input = multiline ? el("textarea", { placeholder, value }) : el("input", { type: "text", placeholder, value });
+      box.append(el("form", { class: "form", onsubmit: (e) => { e.preventDefault(); answer = input.value; closeIt(); } },
+        input, el("button", { type: "submit" }, "Готово")));
+      setTimeout(() => input.focus(), 50);
+    }, () => resolve(answer));
+  });
+}
+function refresh() { return show(current, currentState); }
+
+// ------------------------------------------------------------------ tasks
+
+function taskMeta(t) {
+  return [t.start && "в " + t.start, t.planned_date && !t.start && "на " + fmtDate(t.planned_date),
+    t.due && (t.due_is_hard ? "жёсткий срок " : "срок ") + t.due, t.estimate_min && "~" + t.estimate_min + " мин"]
+    .filter(Boolean).join(" · ");
+}
+async function markDone(t) {
+  try { await api("tasks/" + t.id + "/done", {}); }
+  catch (e) {
+    if (e.status === 409 && e.data && e.data.criteria) {
+      const ok = await confirmBox("Критерий готовности:\n" + (e.data.done_criteria || "—") + "\n\nРезультат ему соответствует?");
+      if (!ok) { toast("Не отмечено. Можно записать частичный прогресс."); return false; }
+      await api("tasks/" + t.id + "/done", { criteria_confirmed: true });
+    } else throw e;
+  }
+  return true;
+}
+function taskRow(t, opts) {
+  opts = opts || {};
+  const done = t.status === "done";
+  const body = el("div", { class: "body", onclick: () => openTask(t.id) },
+    el("div", { class: "title" }, t.title),
+    taskMeta(t) && el("div", { class: "meta" }, taskMeta(t)),
+    t.next_step && el("div", { class: "meta" }, "Следующий шаг: " + t.next_step),
+    t.progress_note && !done && el("div", { class: "meta" }, "Прогресс: " + t.progress_note));
+  const acts = el("div", { class: "acts" });
+  if (!done && !["cancelled", "someday"].includes(t.status)) {
+    acts.append(
+      el("button", { class: "ghost", title: "Начать работу", onclick: () => startWork(t.id) }, "▶"),
+      el("button", { onclick: async () => { if (await run(() => markDone(t)) === true) { toast("Готово"); haptic(); refresh(); } } }, "✓"));
+  }
+  return el("div", { class: "row" + (done ? " done" : "") }, body, acts);
+}
+async function startWork(taskId, mode) {
+  if (await run(() => api("session/start", { task_id: taskId || null, mode: mode || "free" }), "Сессия начата")) {
+    sheetStack.slice().forEach((c) => c()); show("work");
+  }
+}
+async function openTask(id) {
+  let t;
+  try { t = await api("tasks/" + id); } catch (e) { toast(e.message); return; }
+  openSheet("Задача", (box, close) => {
+    const after = () => { close(); refresh(); };
+    const title = el("input", { type: "text", value: t.title, maxlength: "500" });
+    const descr = el("textarea", { value: t.description, placeholder: "Подробности" });
+    const crit = el("textarea", { value: t.done_criteria, placeholder: "Например: отчёт отправлен руководителю" });
+    const est = el("input", { type: "number", min: "0", max: "1440", value: t.estimate_min });
+    const pday = el("input", { type: "date", value: t.planned_day });
+    const ptime = el("input", { type: "time", value: t.planned_time });
+    const due = el("input", { type: "date", value: t.due_date });
+    const hard = el("input", { type: "checkbox", checked: t.due_is_hard });
+    const goal = el("select", {}, el("option", { value: "" }, "без цели"),
+      ...t.goals.map((g) => el("option", { value: g.id, selected: g.id === t.goal_id }, g.title)));
+    box.append(field("Название", title), field("Описание", descr), field("Критерий готовности (необязательно)", crit),
+      el("div", { class: "two" }, field("День", pday), field("Время", ptime)),
+      el("div", { class: "two" }, field("Срок", due), field("Оценка, мин", est)),
+      el("label", { class: "check" }, hard, "Срок жёсткий"), field("Цель", goal));
+    box.append(el("div", { class: "form" }, el("button", { onclick: async () => {
+      const ch = {};
+      if (title.value.trim() !== t.title) ch.title = title.value;
+      if ((descr.value || "") !== (t.description || "")) ch.description = descr.value;
+      if ((crit.value || "") !== (t.done_criteria || "")) ch.done_criteria = crit.value;
+      if (String(est.value || "") !== String(t.estimate_min || "")) ch.estimate_minutes = est.value === "" ? null : Number(est.value);
+      if ((pday.value || "") !== (t.planned_day || "") || (ptime.value || "") !== (t.planned_time || "")) { ch.planned_day = pday.value || null; ch.planned_time = ptime.value || null; }
+      if ((due.value || "") !== (t.due_date || "") || hard.checked !== t.due_is_hard) { ch.due_date = due.value || null; ch.due_is_hard = hard.checked; }
+      if (String(goal.value) !== String(t.goal_id || "")) ch.goal_id = goal.value ? Number(goal.value) : null;
+      if (!Object.keys(ch).length) { toast("Изменений нет"); return; }
+      if (await run(() => api("tasks/" + id + "/edit", ch), "Сохранено")) after();
+    } }, "Сохранить")));
+
+    const open = !["done", "cancelled"].includes(t.status);
+    box.append(el("h2", {}, "Шаги"));
+    for (const c of t.children) box.append(el("div", { class: "row" + (c.status === "done" ? " done" : "") },
+      el("div", { class: "body", onclick: () => { close(); openTask(c.id); } }, el("div", { class: "title" }, c.title), taskMeta(c) && el("div", { class: "meta" }, taskMeta(c))),
+      c.status !== "done" && el("div", { class: "acts" }, el("button", { onclick: async () => { if (await run(() => markDone(c)) === true) { close(); openTask(id); } } }, "✓"))));
+    const step = el("input", { type: "text", placeholder: "Новый шаг" });
+    box.append(el("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); if (!step.value.trim()) return;
+      if (await run(() => api("tasks", { title: step.value, parent_id: id, op_key: opKey() }), "Шаг добавлен")) { close(); openTask(id); } } },
+      step, el("button", { type: "submit" }, "Добавить")));
+
+    box.append(el("h2", {}, "Действия"));
+    const st = (action, text) => el("button", { class: "ghost", onclick: async () => {
+      if (await run(() => api("tasks/" + id + "/status", { action }), text)) after(); } }, text);
+    const acts = el("div", { class: "form" });
+    if (open) {
+      acts.append(el("button", { onclick: () => startWork(id) }, "▶ Начать работу"),
+        el("button", { class: "ghost", onclick: async () => {
+          if (await run(() => markDone(t)) === true) { toast("Готово"); haptic(); after(); } } }, "✓ Готово"),
+        el("button", { class: "ghost", onclick: async () => {
+          const note = await ask("Что уже сделано?", "Например: собрал цифры за квартал");
+          if (note === null) return;
+          if (await run(() => api("tasks/" + id + "/progress", { note }), "Прогресс записан, задача открыта")) after(); } }, "½ Частично"),
+        st("tomorrow", "На завтра"), st("backlog", "В бэклог"), st("someday", "Когда-нибудь"), st("cancel", "Отменить"));
+    } else acts.append(st("reopen", "Вернуть в работу"));
+    acts.append(el("button", { class: "danger", onclick: async () => {
+      if (!(await confirmBox("Удалить задачу «" + t.title + "» насовсем?"))) return;
+      if (await run(() => api("tasks/" + id + "/status", { action: "delete" }), "Удалено")) after(); } }, "Удалить"));
+    box.append(acts);
+
+    if (open) {
+      const cday = el("input", { type: "date", value: t.planned_day });
+      const ctime = el("input", { type: "time", value: t.planned_time || "" });
+      const cmin = el("input", { type: "number", min: "5", max: "480", value: t.estimate_min || 60 });
+      box.append(el("h2", {}, "Блок в Google Календаре"),
+        el("p", { class: "meta" }, "Событие создаётся только после подтверждения."),
+        el("div", { class: "form" }, cday, ctime, cmin, el("button", { class: "ghost", onclick: async () => {
+          const r = await run(() => api("tasks/" + id + "/calendar", { day: cday.value || null, time: ctime.value, minutes: Number(cmin.value) }));
+          if (r && r.approval_id) { close(); openApprovals([r.approval_id]); } } }, "Предложить")));
+    }
+    if (t.history.length) {
+      const H = { created: "создана", updated: "изменена", rescheduled: "перенесена", postponed: "отложена", started: "начата",
+        progressed: "прогресс", completed: "сделана", reopened: "возвращена", cancelled: "отменена", deferred: "когда-нибудь",
+        reordered: "порядок", subtasks_changed: "шаги", obstacle_reported: "помеха" };
+      box.append(el("h2", {}, "История"), ...t.history.map((h) => el("div", { class: "meta" }, h.at + " — " + (H[h.type] || h.type))));
+    }
+  });
+}
+
+// ------------------------------------------------------------------ approvals
+
+async function openApprovals(onlyIds) {
+  let d;
+  try { d = await api("approvals"); } catch (e) { toast(e.message); return; }
+  const list = onlyIds ? d.approvals.filter((a) => onlyIds.includes(a.id)) : d.approvals;
+  if (!list.length) { toast("Нечего подтверждать"); return; }
+  openSheet("Подтвердить", (box, close) => { renderApprovals(box, list, () => { close(); refresh(); updateBadge(); }); });
+}
+function renderApprovals(box, list, after) {
+  for (const a of list) {
+    const card = el("div", { class: "card" }, el("b", {}, a.summary), ...a.lines.map((l) => el("div", { class: "meta" }, l)),
+      el("div", { class: "meta" }, (a.origin === "ai" ? "предложил ИИ" : "предложение") + (a.expires ? " · до " + a.expires : "")));
+    const act = (what) => async () => {
+      const r = await run(() => api("approvals/" + a.id + "/" + what, {}));
+      if (r) { toast(r.message || "Готово"); haptic(r.ok ? "success" : "error"); card.remove(); if (!box.querySelector(".card")) after(); else updateBadge(); }
+    };
+    card.append(el("div", { class: "form" }, el("button", { onclick: act("approve") }, "Да, применить"),
+      el("button", { class: "ghost", onclick: act("reject") }, "Нет")));
+    box.append(card);
+  }
+}
+async function updateBadge() {
+  try {
+    const d = await api("approvals");
+    const btn = document.querySelector('nav button[data-tab="inbox"]');
+    btn.replaceChildren("Подтвердить", d.approvals.length ? el("span", { class: "badge" }, d.approvals.length) : "");
+  } catch (_) { /* offline or outside Telegram */ }
+}
+
+// ------------------------------------------------------------------ quick add
+
+function openAdd() {
+  openSheet("Добавить", (box, close) => {
+    let mode = "task";
+    const seg = el("div", { class: "seg" });
+    const body = el("div", {});
+    const render = () => {
+      seg.replaceChildren(...[["task", "Задача"], ["text", "Текстом"], ["habit", "Привычка"], ["goal", "Цель"]].map(([k, n]) =>
+        el("button", { class: k === mode ? "on" : "", onclick: () => { mode = k; render(); } }, n)));
+      body.replaceChildren();
+      ({ task: addTaskForm, text: addTextForm, habit: addHabitForm, goal: addGoalForm })[mode](body, close);
+    };
+    box.append(seg, body); render();
+  });
+}
+function addTaskForm(box, close) {
+  const iso = todayIso();
+  const title = el("input", { type: "text", placeholder: "Что сделать?", maxlength: "500" });
+  const day = el("input", { type: "date", value: iso });
+  const time = el("input", { type: "time" });
+  const est = el("input", { type: "number", min: "0", max: "1440", placeholder: "мин" });
+  const due = el("input", { type: "date" });
+  const key = opKey();
+  box.append(field("Название", title), el("div", { class: "two" }, field("День (пусто — бэклог)", day), field("Время", time)),
+    el("div", { class: "two" }, field("Срок", due), field("Оценка, мин", est)),
+    el("div", { class: "form" }, el("button", { onclick: async () => {
+      if (!title.value.trim()) { toast("Нужно название"); return; }
+      const r = await run(() => api("tasks", { title: title.value, planned_date: day.value || null, planned_time: time.value || null,
+        due_date: due.value || null, estimate_minutes: est.value ? Number(est.value) : null, op_key: key }), "Задача добавлена");
+      if (r) { close(); refresh(); }
+    } }, "Добавить")));
+  setTimeout(() => title.focus(), 50);
+}
+function addTextForm(box, close) {
+  const text = el("textarea", { placeholder: "Например: завтра в 10 позвонить в банк, в пятницу сдать отчёт" });
+  const key = opKey();
+  box.append(el("p", { class: "meta" }, "Можно несколько дел сразу. Бот разберёт текст и покажет карточки — задачи появятся только после «Да»."),
+    text, el("div", { class: "form" }, el("button", { onclick: async () => {
+      if (!text.value.trim()) return;
+      const r = await run(() => api("capture", { text: text.value, op_key: key }));
+      if (!r) return;
+      if (!r.approvals.length) { toast(r.text || "Ничего не нашёл"); return; }
+      close(); openSheet(r.header || "Проверь и подтверди", (b, c) => renderApprovals(b, r.approvals, () => { c(); refresh(); updateBadge(); }));
+    } }, "Разобрать")));
+  setTimeout(() => text.focus(), 50);
+}
+function scheduleInputs(sched) {
+  sched = sched || { type: "daily" };
+  const type = el("select", {}, ...[["daily", "Каждый день"], ["weekly", "По дням недели"], ["times_per_week", "N раз в неделю"]]
+    .map(([k, n]) => el("option", { value: k, selected: sched.type === k }, n)));
+  const days = WD_MON.map((n, i) => el("input", { type: "checkbox", value: i, checked: (sched.days || []).includes(i) }));
+  const daysBox = el("div", { class: "days7" }, ...days.map((c, i) => el("label", {}, c, WD_MON[i])));
+  const n = el("input", { type: "number", min: "1", max: "6", value: sched.n || 3 });
+  const extra = el("div", {});
+  const upd = () => { extra.replaceChildren(type.value === "weekly" ? daysBox : type.value === "times_per_week" ? field("Сколько раз", n) : ""); };
+  type.addEventListener("change", upd); upd();
+  return { nodes: [field("График", type), extra], value: () => type.value === "weekly"
+    ? { type: "weekly", days: days.filter((c) => c.checked).map((c) => Number(c.value)) }
+    : type.value === "times_per_week" ? { type: "times_per_week", n: Number(n.value) } : { type: "daily" } };
+}
+function addHabitForm(box, close) {
+  const title = el("input", { type: "text", placeholder: "Например: чтение", maxlength: "200" });
+  const sched = scheduleInputs();
+  const amount = el("input", { type: "number", min: "0", placeholder: "20" });
+  const unit = el("input", { type: "text", placeholder: "мин / страниц / раз" });
+  const min = el("input", { type: "number", min: "0", placeholder: "5" });
+  const time = el("input", { type: "time" });
+  const key = opKey();
+  box.append(field("Название", title), ...sched.nodes,
+    el("div", { class: "two" }, field("Цель за раз", amount), field("Единица", unit)),
+    el("div", { class: "two" }, field("Минимум (в плохой день)", min), field("Удобное время", time)),
+    el("div", { class: "form" }, el("button", { onclick: async () => {
+      if (!title.value.trim()) { toast("Нужно название"); return; }
+      const target = {}; if (amount.value) target.amount = Number(amount.value); if (unit.value) target.unit = unit.value; if (min.value) target.min_amount = Number(min.value);
+      if (await run(() => api("habits", { title: title.value, schedule: sched.value(), target, time: time.value || null, op_key: key }), "Привычка добавлена")) { close(); show("habits"); }
+    } }, "Добавить")));
+}
+function addGoalForm(box, close) {
+  const title = el("input", { type: "text", placeholder: "Например: пробежать полумарафон", maxlength: "300" });
+  const outcome = el("textarea", { placeholder: "Как поймёшь, что цель достигнута" });
+  const horizon = el("input", { type: "date" });
+  const ms = el("textarea", { placeholder: "Этапы — по одному в строке" });
+  const key = opKey();
+  box.append(field("Цель", title), field("Измеримый результат", outcome), field("К какой дате", horizon), field("Этапы (дорожная карта)", ms),
+    el("div", { class: "form" }, el("button", { onclick: async () => {
+      if (!title.value.trim()) { toast("Нужно название"); return; }
+      const milestones = ms.value.split("\n").map((x) => x.trim()).filter(Boolean);
+      if (await run(() => api("goals", { title: title.value, measurable_outcome: outcome.value || null, horizon_date: horizon.value || null, milestones, op_key: key }), "Цель добавлена")) { close(); show("goals"); }
+    } }, "Добавить")));
+}
+
+// ------------------------------------------------------------------ habits
+
+function habitRow(h, canMark) {
+  const LBL = { done: "сделано", partial: "минимум", skipped: "пропуск", missed: "не сделано" };
+  const body = el("div", { class: "body", onclick: () => h.full && openHabit(h.full) }, el("div", { class: "title" }, h.title),
+    el("div", { class: "meta" }, [h.time, h.target, h.status && "сегодня: " + (LBL[h.status] || h.status)].filter(Boolean).join(" · ")));
+  const acts = el("div", { class: "acts" });
+  if (canMark !== false) {
+    const mark = async (st) => { if (await run(() => api("habits/" + h.id + "/mark", { status: st }))) { haptic(); refresh(); } };
+    acts.append(el("button", { class: "ghost", onclick: () => mark("skipped") }, "Пропуск"),
+      el("button", { class: "ghost", onclick: () => mark("partial") }, "Минимум"),
+      el("button", { onclick: () => mark("done") }, "✓"));
+  }
+  return el("div", { class: "row" + (h.status === "done" ? " done" : "") }, body, acts);
+}
+function openHabit(h) {
+  openSheet("Привычка", (box, close) => {
+    const title = el("input", { type: "text", value: h.title, maxlength: "200" });
+    const time = el("input", { type: "time", value: h.time || "" });
+    box.append(field("Название", title), field("Удобное время", time), el("p", { class: "meta" }, h.schedule + " · " + h.target), el("p", { class: "meta" }, h.stability));
+    const save = async (ch, text) => { if (await run(() => api("habits/" + h.id + "/edit", ch), text || "Сохранено")) { close(); show("habits"); } };
+    box.append(el("div", { class: "form" },
+      el("button", { onclick: () => {
+        const ch = {}; if (title.value.trim() !== h.title) ch.title = title.value; if ((time.value || "") !== (h.time || "")) ch.time = time.value || null;
+        if (!Object.keys(ch).length) { toast("Изменений нет"); return; } save(ch); } }, "Сохранить"),
+      h.status === "active" ? el("button", { class: "ghost", onclick: () => save({ status: "paused" }, "На паузе") }, "Пауза")
+        : el("button", { class: "ghost", onclick: () => save({ status: "active" }, "Возобновлена") }, "Возобновить"),
+      el("button", { class: "danger", onclick: async () => { if (await confirmBox("Убрать привычку в архив? История сохранится.")) save({ status: "archived" }, "В архиве"); } }, "В архив")));
+    const sched = scheduleInputs(null);
+    box.append(el("h2", {}, "Изменить график"), ...sched.nodes,
+      el("div", { class: "form" }, el("button", { class: "ghost", onclick: () => save({ schedule: sched.value() }, "График изменён") }, "Сохранить график")));
+  });
+}
+
+// ------------------------------------------------------------------ screens
+
+const screens = {
+  async day(v) {
+    const [d, p] = await Promise.all([api("day"), api("plan")]);
+    serverToday = d.day;
+    v.append(el("h1", {}, "Мой день · " + fmtDate(d.day)));
+    if (d.session) v.append(el("div", { class: "card" },
+      el("b", {}, d.session.needs_outcome ? "Сессия закончена — чем закончилась?" : "Идёт работа"),
+      el("div", { class: "meta" }, d.session.task_title || "без задачи"),
+      el("div", { class: "form" }, el("button", { onclick: () => show("work") }, "Открыть"))));
+    v.append(planCard(p.plan));
+    if (!d.sections.length) v.append(el("p", { class: "muted" }, "На сегодня задач нет. Нажми «+», чтобы добавить."));
+    for (const sec of d.sections) {
+      v.append(el("h2", {}, sec.title));
+      for (const t of sec.tasks) v.append(taskRow(t));
+    }
+    if (d.habits.length) {
+      v.append(el("h2", {}, "Привычки"));
+      for (const h of d.habits) v.append(habitRow(h));
+    }
+    if (d.backlog_count) v.append(el("p", { class: "meta" }, "В бэклоге: " + d.backlog_count));
+  },
+
+  async tasks(v, state) {
+    const view = state.view || "today";
+    const seg = el("div", { class: "seg" }, ...[["today", "Сегодня"], ["upcoming", "Скоро"], ["backlog", "Бэклог"], ["someday", "Потом"], ["done", "Сделано"]]
+      .map(([k, n]) => el("button", { class: k === view ? "on" : "", onclick: () => show("tasks", { view: k }) }, n)));
+    const title = el("input", { type: "text", placeholder: "Быстро добавить задачу", maxlength: "500" });
+    const key = opKey();
+    const add = el("form", { class: "form", onsubmit: async (ev) => {
+      ev.preventDefault();
+      if (!title.value.trim()) return;
+      if (await run(() => api("tasks", { title: title.value, planned_date: view === "today" ? todayIso() : null, op_key: key }), "Задача добавлена")) show("tasks", { view });
+    } }, title, el("button", { type: "submit" }, "Добавить"));
+    v.append(el("h1", {}, "Задачи"), seg, add);
+    const d = await api("tasks?view=" + encodeURIComponent(view));
+    if (!d.tasks.length) v.append(el("p", { class: "muted" }, "Здесь пусто."));
+    const render = (t) => {
+      const box = el("div", {}, taskRow(t));
+      if (t.children && t.children.length) box.append(el("div", { class: "children" }, ...t.children.map(render)));
+      return box;
+    };
+    for (const t of d.tasks) v.append(render(t));
+  },
+
+  async inbox(v) {
+    const d = await api("approvals");
+    v.append(el("h1", {}, "Подтвердить"),
+      el("p", { class: "meta" }, "Предложения бота и ИИ. Ничего не меняется, пока не нажмёшь «Да»."));
+    if (!d.approvals.length) { v.append(el("p", { class: "muted" }, "Всё разобрано.")); return; }
+    renderApprovals(v, d.approvals, () => { refresh(); updateBadge(); });
+  },
+
+  async week(v, state) {
+    const d = await api("week" + (state.start ? "?start=" + state.start : ""));
+    const shift = (n) => { const x = new Date(d.start + "T12:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+    v.append(el("h1", {}, "Неделя с " + fmtDate(d.start)),
+      el("div", { class: "form" },
+        el("button", { class: "ghost", onclick: () => show("week", { start: shift(-7) }) }, "←"),
+        el("button", { class: "ghost", onclick: () => show("week", {}) }, "Эта неделя"),
+        el("button", { class: "ghost", onclick: () => show("week", { start: shift(7) }) }, "→")));
+    if (!d.calendar.connected) v.append(el("p", { class: "meta" }, "Google Календарь не подключён — подключить можно командой /calendar в чате."));
+    else if (d.calendar.stale) v.append(el("p", { class: "meta" }, "⚠️ Данные календаря могут быть неактуальны."));
+    const grid = el("div", { class: "grid" });
+    for (const day of d.days) {
+      const box = el("div", { class: "day" + (day.is_today ? " today" : "") },
+        el("b", {}, weekday(day.date) + " " + fmtDate(day.date)));
+      for (const e of day.events) box.append(el("div", { class: "ev" }, "📅 " + (e.all_day ? "весь день" : e.start + "–" + e.end) + " " + e.title));
+      for (const t of day.tasks) box.append(el("div", { class: t.status === "done" ? "meta" : "", style: "cursor:pointer", onclick: () => openTask(t.id) },
+        (t.status === "done" ? "✓ " : "• ") + (t.start ? t.start + " " : "") + t.title));
+      if (day.habits) box.append(el("div", { class: "meta" }, "Привычек: " + day.habits));
+      if (!day.events.length && !day.tasks.length && !day.habits) box.append(el("div", { class: "meta" }, "свободно"));
+      grid.append(box);
+    }
+    v.append(grid);
+  },
+
+  async goals(v) {
+    const d = await api("goals");
+    v.append(el("h1", {}, "Цели и дорожные карты"),
+      el("div", { class: "form" }, el("button", { onclick: () => openSheet("Новая цель", (b, c) => addGoalForm(b, c)) }, "+ Цель")));
+    if (!d.goals.length) v.append(el("p", { class: "muted" }, "Целей пока нет."));
+    for (const g of d.goals) {
+      const m = g.measured;
+      const share = m.milestones_total ? m.milestones_done / m.milestones_total : (m.tasks_total ? m.tasks_done / m.tasks_total : null);
+      const card = el("div", { class: "card" },
+        el("b", {}, g.title),
+        el("div", { class: "meta" }, [g.status === "paused" ? "на паузе" : null,
+          g.horizon_date && "до " + fmtDate(g.horizon_date) + (g.days_left !== null ? " (" + g.days_left + " дн.)" : "")].filter(Boolean).join(" · ")),
+        g.measurable_outcome && el("div", { class: "meta" }, "Результат: " + g.measurable_outcome),
+        share !== null && el("div", { class: "bar" }, el("i", { style: "width:" + Math.round(share * 100) + "%" })),
+        el("div", { class: "meta" }, "Этапы: " + m.milestones_done + "/" + m.milestones_total + " · задачи: " + m.tasks_done + "/" + m.tasks_total),
+        g.reported && el("div", { class: "meta" }, "По твоим словам: " + g.reported));
+      card.append(el("h2", {}, "Дорожная карта"));
+      for (const ms of g.milestones) card.append(el("div", { class: "ms" + (ms.status === "done" ? " done" : "") + (ms.is_key ? " key" : ""),
+        onclick: async () => { if (await run(() => api("milestones/" + ms.id + "/edit", { status: ms.status === "done" ? "active" : "done" }))) { haptic(); refresh(); } } },
+        el("span", { class: "dot" }), el("span", { class: "t" }, ms.title + (ms.due ? " · " + fmtDate(ms.due) : "") + (ms.is_key ? " · ключевой" : ""))));
+      const msIn = el("input", { type: "text", placeholder: "Новый этап" });
+      card.append(el("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); if (!msIn.value.trim()) return;
+        if (await run(() => api("goals/" + g.goal_id + "/milestones", { title: msIn.value }), "Этап добавлен")) refresh(); } }, msIn, el("button", { type: "submit" }, "+")));
+      if (g.open_tasks.length) {
+        card.append(el("h2", {}, "Открытые задачи"));
+        for (const t of g.open_tasks) card.append(taskRow(t));
+      }
+      const setStatus = (status, text) => async () => { if (await run(() => api("goals/" + g.goal_id + "/edit", { status }), text)) refresh(); };
+      card.append(el("div", { class: "form" },
+        el("button", { class: "ghost", onclick: async () => {
+          const note = await ask("Как продвигается цель?", "Своими словами", g.reported || "", true);
+          if (note !== null && await run(() => api("goals/" + g.goal_id + "/edit", { progress_note: note }), "Записано")) refresh(); } }, "Отметить прогресс"),
+        g.status === "active" ? el("button", { class: "ghost", onclick: setStatus("paused", "На паузе") }, "Пауза")
+          : el("button", { class: "ghost", onclick: setStatus("active", "Возобновлена") }, "Возобновить"),
+        el("button", { class: "ghost", onclick: setStatus("done", "Цель достигнута 🎉") }, "Достигнута"),
+        el("button", { class: "danger", onclick: async () => { if (await confirmBox("Убрать цель в архив?")) setStatus("archived", "В архиве")(); } }, "В архив")));
+      v.append(card);
+    }
+  },
+
+  async habits(v) {
+    const d = await api("habits");
+    v.append(el("h1", {}, "Привычки"),
+      el("div", { class: "form" }, el("button", { onclick: () => openSheet("Новая привычка", (b, c) => addHabitForm(b, c)) }, "+ Привычка")));
+    if (!d.habits.length) v.append(el("p", { class: "muted" }, "Привычек пока нет."));
+    for (const h of d.habits) {
+      const row = habitRow({ id: h.id, title: h.title, time: h.time, target: h.target, status: h.today_status, full: h },
+        h.due_today && h.status === "active");
+      row.querySelector(".body").append(el("div", { class: "meta" }, h.schedule + (h.status === "paused" ? " · на паузе" : "")),
+        el("div", { class: "meta" }, h.stability));
+      v.append(row);
+    }
+  },
+
+  async work(v) {
+    const d = (await api("session")).session;
+    v.append(el("h1", {}, "Работа"));
+    if (!d) {
+      v.append(el("p", { class: "muted" }, "Сейчас сессии нет. Начать можно кнопкой ▶ у задачи или без задачи:"),
+        el("div", { class: "form" },
+          ...[["free", "Свободно"], ["pomodoro", "Помодоро"], ["short_start", "Короткий старт"]].map(([m, n]) =>
+            el("button", { class: m === "free" ? "" : "ghost", onclick: async () => {
+              try { await api("session/start", { mode: m }); show("work"); }
+              catch (e) { toast(e.message + (e.data && e.data.missing ? " Задай их в «Настройках»." : "")); }
+            } }, n))));
+      return;
+    }
+    const act = async (what, extra) => { if (await run(() => api("session/" + what, Object.assign({ session_id: d.id }, extra || {})))) { haptic(); show("work"); } };
+    const PH = { work: "работа", overtime: "сверх плана", break: "перерыв", paused: "пауза", finished: "закончена" };
+    v.append(el("div", { class: "card" },
+      el("div", {}, d.task_title || "Без задачи"),
+      el("div", { class: "meta" }, (PH[d.phase] || d.phase) + (d.planned_minutes ? " · план " + d.planned_minutes + " мин" : "")),
+      el("div", { class: "timer", id: "timer" }, mmss(d.net_seconds))));
+    if (d.needs_outcome) {
+      v.append(el("h2", {}, "Чем закончилось?"), el("div", { class: "form" },
+        el("button", { class: "ghost", onclick: () => act("outcome", { outcome: "started" }) }, "Только начал"),
+        el("button", { class: "ghost", onclick: () => act("outcome", { outcome: "progressed" }) }, "Есть прогресс"),
+        el("button", { onclick: async () => {
+          const extra = { outcome: "completed" };
+          if (d.needs_criteria) {
+            const ok = await confirmBox("Критерий готовности:\n" + (d.done_criteria || "—") + "\n\nРезультат ему соответствует?");
+            if (!ok) return act("outcome", { outcome: "progressed" });
+            extra.criteria_confirmed = true;
+          }
+          act("outcome", extra);
+        } }, "Сделано")));
+      return;
+    }
+    const buttons = el("div", { class: "form" });
+    if (d.status === "active") buttons.append(el("button", { class: "ghost", onclick: () => act("pause") }, "Пауза"));
+    if (d.status === "paused") buttons.append(el("button", { class: "ghost", onclick: () => act("resume") }, "Продолжить"));
+    buttons.append(el("button", { onclick: () => act("stop") }, "Закончить"));
+    v.append(buttons, el("p", { class: "meta" }, "Во время работы бот не дёргает проверками. Сигнал придёт, только если ты заранее задал таймер."));
+    if (d.status === "active") {
+      let sec = d.net_seconds;
+      tick = setInterval(() => { const t = document.getElementById("timer"); if (t) t.textContent = mmss(++sec); }, 1000);
+    }
+  },
+
+  async report(v, state) {
+    const days = state.days || 7;
+    const seg = el("div", { class: "seg" }, ...[[1, "День"], [7, "7 дней"], [14, "14 дней"], [30, "30 дней"]]
+      .map(([k, n]) => el("button", { class: k === days ? "on" : "", onclick: () => show("report", { days: k }) }, n)));
+    v.append(el("h1", {}, "Отчёт"), seg);
+    const d = await api("report?days=" + days);
+    v.append(el("p", { class: "meta" }, "Период: " + d.period + ". Цифры считает бот, без ИИ."));
+    for (const dir of d.directions) {
+      v.append(el("div", { class: "card" }, el("b", {}, dir.title), ...dir.lines.map((l) => el("div", { class: "meta" }, l))));
+    }
+  },
+
+  async memory(v) {
+    const d = await api("memory");
+    v.append(el("h1", {}, "Память"),
+      el("p", { class: "meta" }, "Что бот помнит о тебе. Гипотезы — только предположения: опровергни, если не так."));
+    if (!d.flags.enabled) v.append(el("p", { class: "meta" }, "Память выключена в настройках."));
+    const fact = el("input", { type: "text", placeholder: "Запомни: …" });
+    v.append(el("form", { class: "form", onsubmit: async (e) => { e.preventDefault(); if (!fact.value.trim()) return;
+      if (await run(() => api("memory", { content: fact.value }), "Запомнил")) refresh(); } }, fact, el("button", { type: "submit" }, "Добавить")));
+    if (!d.items.length) v.append(el("p", { class: "muted" }, "Пока пусто."));
+    for (const m of d.items) {
+      const act = (what, body, text) => async () => { if (await run(() => api("memory/" + m.id + "/" + what, body || {}), text)) refresh(); };
+      v.append(el("div", { class: "card" },
+        el("div", { style: m.status === "refuted" ? "text-decoration:line-through;opacity:.6" : "" }, m.content),
+        el("div", { class: "meta" }, m.kind_label + " · " + m.origin_label + (m.hint ? " · проверить: " + m.hint : "")),
+        el("div", { class: "form" },
+          m.origin !== "user_confirmed" && el("button", { class: "ghost", onclick: act("confirm", null, "Подтверждено") }, "Верно"),
+          m.status !== "refuted" && el("button", { class: "ghost", onclick: act("refute", null, "Опровергнуто") }, "Неверно"),
+          el("button", { class: "ghost", onclick: async () => {
+            const text = await ask("Исправить запись", "", m.content, true);
+            if (text !== null && text.trim()) act("correct", { content: text }, "Исправлено")(); } }, "Исправить"),
+          el("button", { class: "danger", onclick: async () => { if (await confirmBox("Удалить запись из памяти?")) act("delete", null, "Удалено")(); } }, "Удалить"))));
+    }
+  },
+
+  async settings(v) {
+    const d = await api("settings");
+    v.append(el("h1", {}, "Настройки"));
+    if (!d.ready) { v.append(el("p", { class: "muted" }, "Сначала пройди короткую настройку в чате: /start.")); return; }
+    const save = async (changes) => { if (await run(() => api("settings", changes), "Сохранено")) show("settings"); };
+    const val = (x) => (x === null || x === undefined ? "" : x);
+
+    const tz = el("input", { type: "text", value: d.timezone, placeholder: "Europe/Moscow" });
+    const times = { morning_time: "Утренний план", evening_time: "Вечерний итог", weekly_review_time: "Недельный обзор" };
+    const tIn = {}; for (const k in times) tIn[k] = el("input", { type: "time", value: val(d[k]) });
+    const dow = el("select", {}, el("option", { value: "" }, "не задан"), ...WD_MON.map((n, i) => el("option", { value: i, selected: d.weekly_review_dow === i }, n)));
+    const mins = { pre_task_lead_min: "Напомнить до задачи, мин", start_delay_min: "Спросить, если не начал, через мин (0 — не спрашивать)",
+      pomodoro_work_min: "Помодоро: работа", pomodoro_break_min: "Помодоро: перерыв", short_start_min: "Короткий старт" };
+    const mIn = {}; for (const k in mins) mIn[k] = el("input", { type: "number", min: "0", max: "240", value: val(d[k]) });
+    const notif = el("input", { type: "checkbox", checked: d.notifications_enabled });
+    const q = d.quiet_hours[0] || {};
+    const qs = el("input", { type: "time", value: q.start || "" }), qe = el("input", { type: "time", value: q.end || "" });
+
+    v.append(el("div", { class: "card" }, el("b", {}, "Расписание"), field("Часовой пояс", tz),
+      el("div", { class: "two" }, field(times.morning_time, tIn.morning_time), field(times.evening_time, tIn.evening_time)),
+      el("div", { class: "two" }, field("День обзора", dow), field(times.weekly_review_time, tIn.weekly_review_time))));
+    v.append(el("div", { class: "card" }, el("b", {}, "Напоминания и работа"), ...Object.keys(mins).map((k) => field(mins[k], mIn[k]))));
+    v.append(el("div", { class: "card" }, el("b", {}, "Тишина"), el("label", { class: "check" }, notif, "Сообщения от бота включены"),
+      el("div", { class: "two" }, field("Тихие часы с", qs), field("до", qe)),
+      d.quiet_hours.length > 1 && el("p", { class: "meta" }, "Окон несколько; здесь меняется первое."),
+      el("p", { class: "meta" }, d.pause_until ? "Пауза до " + d.pause_until : "Паузы нет"),
+      el("div", { class: "form" },
+        el("button", { class: "ghost", onclick: () => save({ pause_hours: 2 }) }, "Пауза 2 ч"),
+        el("button", { class: "ghost", onclick: () => save({ pause_hours: 24 }) }, "На день"),
+        d.pause_until && el("button", { class: "ghost", onclick: () => save({ pause_hours: 0 }) }, "Снять паузу"))));
+    v.append(el("div", { class: "form" }, el("button", { onclick: () => {
+      const ch = {};
+      if (tz.value.trim() && tz.value.trim() !== d.timezone) ch.timezone = tz.value.trim();
+      for (const k in tIn) if ((tIn[k].value || "") !== val(d[k])) ch[k] = tIn[k].value || null;
+      for (const k in mIn) if (String(mIn[k].value) !== String(val(d[k]))) ch[k] = mIn[k].value === "" ? null : Number(mIn[k].value);
+      const dv = dow.value === "" ? null : Number(dow.value); if (dv !== d.weekly_review_dow) ch.weekly_review_dow = dv;
+      if (notif.checked !== d.notifications_enabled) ch.notifications_enabled = notif.checked;
+      if ((qs.value || "") !== (q.start || "") || (qe.value || "") !== (q.end || "")) {
+        const rest = d.quiet_hours.slice(1);
+        ch.quiet_hours = qs.value && qe.value ? [{ start: qs.value, end: qe.value, days: q.days || null }, ...rest] : rest;
+      }
+      if (!Object.keys(ch).length) { toast("Изменений нет"); return; }
+      save(ch);
+    } }, "Сохранить")));
+
+    const preset = el("select", {}, ...d.style_presets.map((p) => el("option", { value: p.key, selected: p.key === d.style_preset }, p.label)));
+    const knob = (k) => el("input", { type: "range", min: "0", max: "4", step: "1", value: d[k] });
+    const knobs = { strictness: knob("strictness"), humor: knob("humor"), verbosity: knob("verbosity") };
+    const prof = el("input", { type: "checkbox", checked: d.profanity_allowed });
+    v.append(el("div", { class: "card" }, el("b", {}, "Характер бота"),
+      el("p", { class: "meta" }, "Меняет только тон ответов: задачи, история и память не затрагиваются."),
+      field("Стиль", preset), field("Строгость", knobs.strictness), field("Юмор", knobs.humor), field("Подробность", knobs.verbosity),
+      el("label", { class: "check" }, prof, "Можно крепкие слова"),
+      el("div", { class: "form" }, el("button", { class: "ghost", onclick: () => save({ style_preset: preset.value,
+        strictness: Number(knobs.strictness.value), humor: Number(knobs.humor.value), verbosity: Number(knobs.verbosity.value), profanity_allowed: prof.checked }) }, "Сохранить характер"))));
+    const mem = {}; for (const k of ["enabled", "hypotheses", "use_history"]) mem[k] = el("input", { type: "checkbox", checked: d.memory_settings[k] });
+    v.append(el("div", { class: "card" }, el("b", {}, "Память"),
+      el("label", { class: "check" }, mem.enabled, "Память включена"),
+      el("label", { class: "check" }, mem.hypotheses, "Сохранять гипотезы о закономерностях"),
+      el("label", { class: "check" }, mem.use_history, "Учитывать историю переписки"),
+      el("div", { class: "form" }, el("button", { class: "ghost", onclick: () => save({ memory_settings: { enabled: mem.enabled.checked, hypotheses: mem.hypotheses.checked, use_history: mem.use_history.checked } }) }, "Сохранить"),
+        el("button", { class: "ghost", onclick: () => show("memory") }, "Открыть память"))));
+    v.append(el("p", { class: "meta" }, "Ключи ИИ и подключение Google Календаря настраиваются в чате: /ai, /calendar."));
+  },
+};
+
+function planCard(p) {
+  const card = el("div", { class: "card" }, el("b", {}, "План дня"));
+  const propose = async (body) => {
+    const r = await run(() => api("plan", Object.assign({ op_key: opKey() }, body || {})));
+    if (r) refresh();
+  };
+  if (!p) {
+    card.append(el("p", { class: "meta" }, "План на сегодня ещё не собран."),
+      el("div", { class: "form" }, el("button", { onclick: () => propose() }, "Собрать план")));
+    return card;
+  }
+  const ST = { proposed: "предложение", approved: "утверждён", revised: "заменён", rejected: "отклонён", closed: "закрыт" };
+  card.append(el("div", { class: "meta" }, ST[p.status] || p.status), el("div", { class: "plan" }, p.text));
+  const acts = el("div", { class: "form" });
+  if (p.is_proposal) {
+    acts.append(el("button", { onclick: async () => { if (await run(() => api("plan/" + p.revision_id + "/approve", {}), "План утверждён")) refresh(); } }, "Утвердить"),
+      el("button", { class: "ghost", onclick: async () => { if (await run(() => api("plan/" + p.revision_id + "/reject", {}), "Отклонено")) refresh(); } }, "Отклонить"));
+  }
+  acts.append(el("button", { class: "ghost", onclick: () => propose({ replan: true }) }, "Пересобрать"),
+    el("button", { class: "ghost", onclick: async () => {
+      const req = await ask("Что поменять в плане?", "Например: созвон перенесли на 15:00, отчёт сделать до обеда", "", true);
+      if (req && req.trim()) propose({ request: req });
+    } }, "Попросить изменить"));
+  card.append(acts);
+  return card;
+}
+
+async function show(name, state) {
+  current = name; currentState = state || {};
+  if (tick) { clearInterval(tick); tick = null; }
+  for (const b of document.querySelectorAll("nav button")) b.classList.toggle("on", b.dataset.tab === name);
+  const v = document.getElementById("view");
+  const box = el("div", {});
+  try { await screens[name](box, currentState); }
+  catch (e) { box.replaceChildren(el("p", { class: "muted" }, e.message)); }
+  if (current === name) v.replaceChildren(box);
+}
+
+const nav = document.getElementById("tabs");
+for (const [k, n] of TABS) nav.append(el("button", { "data-tab": k, onclick: () => show(k) }, n));
+document.getElementById("fab").addEventListener("click", openAdd);
+show("day");
+updateBadge();
 </script>
 </body>
 </html>
