@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from procbot.ai.persona import PRESET_STYLE
 from procbot.context import AppContext
 from procbot.db.models import CalendarEventCache, OwnerProfile, Task, WorkSession
 from procbot.domain.enums import SessionStatus, TaskStatus
@@ -16,6 +17,7 @@ from procbot.services import analytics, goals, habits, reports, sessions
 from procbot.services import calendar as cal
 from procbot.services import tasks as task_service
 from procbot.services.dayview import DayView, build_day_view
+from procbot.services.preferences import flag
 from procbot.timeutil import fmt_local, local_date, local_day_bounds, to_local
 
 # A finished session still waits for "what came out of it" this long.
@@ -227,7 +229,7 @@ async def habits_payload(s: AsyncSession, ctx: AppContext) -> dict[str, Any]:
     today = await habits.local_today(s, ctx)
     due = {h.habit_id: h for h in await habits.due_habits(s, ctx, today)}
     out = []
-    for h in await habits.list_habits(s):
+    for h in await habits.list_habits(s, statuses=("active", "paused")):
         st = await habits.habit_stability(s, ctx, h.id)
         item = {
             "id": h.id,
@@ -314,6 +316,13 @@ SETTINGS_MINUTES = (
     "short_start_min",
 )
 SETTINGS_TIMES = ("morning_time", "evening_time", "weekly_review_time")
+STYLE_PRESETS: dict[str, str] = {
+    "neutral": "Спокойный",
+    "coach": "Строгий тренер",
+    "ironic": "Ироничный",
+    "soft": "Мягкий",
+}
+MEMORY_FLAGS = ("enabled", "hypotheses", "use_history")
 
 
 def settings_json(p: OwnerProfile | None, ctx: AppContext) -> dict[str, Any]:
@@ -333,6 +342,14 @@ def settings_json(p: OwnerProfile | None, ctx: AppContext) -> dict[str, Any]:
     }
     for key in SETTINGS_TIMES:
         out[key] = _hm(getattr(p, key))
+    out["style_preset"] = p.style_preset
+    out["style_presets"] = [
+        {"key": k, "label": v} for k, v in STYLE_PRESETS.items() if k in PRESET_STYLE
+    ]
+    for key in ("strictness", "humor", "verbosity"):
+        out[key] = getattr(p, key)
+    out["profanity_allowed"] = p.profanity_allowed
+    out["memory_settings"] = {k: flag(p.memory_settings, k) for k in MEMORY_FLAGS}
     for key in SETTINGS_MINUTES:
         out[key] = getattr(p, key)
     return out

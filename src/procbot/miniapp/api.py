@@ -25,9 +25,7 @@ Routes (all under /miniapp):
 
 from __future__ import annotations
 
-import json
-from collections.abc import Awaitable, Callable
-from datetime import date, time, timedelta
+from datetime import timedelta
 from importlib.resources import files
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -37,119 +35,18 @@ from aiohttp import web
 from procbot.context import AppContext
 from procbot.domain.actions import CreateSubtasks, CreateTask, SubtaskDraft, TaskDraft
 from procbot.domain.enums import Actor, HabitOccurrenceStatus, SessionMode, SessionOutcome
+from procbot.miniapp import http as H
 from procbot.miniapp import views
-from procbot.miniapp.auth import InitDataError, verify_init_data
+from procbot.miniapp.http import CtxKey
 from procbot.services import actions, habits, sessions
 from procbot.services import tasks as task_service
 from procbot.services.profile import get_profile, update_profile
 from procbot.services.profile_hooks import after_profile_change
-
-CtxKey = web.AppKey[AppContext]
-Handler = Callable[[web.Request, AppContext], Awaitable[web.StreamResponse]]
+from procbot.timeutil import resolve_local
 
 MAX_TITLE = 500
 REPORT_DAYS = (1, 7, 14, 30)
 MAX_PAUSE_HOURS = 24 * 14
-
-
-def _error(status: int, message: str, **extra: Any) -> web.Response:
-    return web.json_response({"error": message, **extra}, status=status)
-
-
-def _authorize(request: web.Request, ctx: AppContext) -> None:
-    header = request.headers.get("Authorization", "")
-    scheme, _, raw = header.partition(" ")
-    if scheme.lower() != "tma" or not raw:
-        raise web.HTTPUnauthorized(text="initData required")
-    try:
-        verify_init_data(
-            raw,
-            bot_token=ctx.env.telegram_bot_token,
-            owner_id=ctx.owner_id,
-            now=ctx.clock.now(),
-        )
-    except InitDataError as exc:
-        raise web.HTTPForbidden(text=str(exc)) from exc
-
-
-async def _body(request: web.Request) -> dict[str, Any]:
-    if not request.can_read_body:
-        return {}
-    try:
-        data = await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise web.HTTPBadRequest(text="bad json") from exc
-    if not isinstance(data, dict):
-        raise web.HTTPBadRequest(text="json object expected")
-    return data
-
-
-def _int_id(request: web.Request, name: str) -> int:
-    try:
-        return int(request.match_info[name])
-    except ValueError as exc:
-        raise web.HTTPBadRequest(text=f"bad {name}") from exc
-
-
-def _date(value: Any, field: str) -> date | None:
-    if value in (None, ""):
-        return None
-    try:
-        return date.fromisoformat(str(value))
-    except ValueError as exc:
-        raise ValueError(f"Неверная дата: {field}") from exc
-
-
-def _hhmm(value: Any, field: str) -> time | None:
-    if value in (None, ""):
-        return None
-    try:
-        t = time.fromisoformat(str(value))
-    except ValueError as exc:
-        raise ValueError(f"Неверное время: {field}") from exc
-    return t.replace(second=0, microsecond=0, tzinfo=None)
-
-
-def _minutes(value: Any, field: str, *, high: int = 240) -> int | None:
-    if value in (None, ""):
-        return None
-    if isinstance(value, bool) or not isinstance(value, int | str):
-        raise ValueError(f"Нужно число минут: {field}")
-    try:
-        n = int(value)
-    except ValueError as exc:
-        raise ValueError(f"Нужно число минут: {field}") from exc
-    if not 0 <= n <= high:
-        raise ValueError(f"Значение вне диапазона 0–{high}: {field}")
-    return n
-
-
-def _route(key: CtxKey, fn: Handler) -> Callable[[web.Request], Awaitable[web.StreamResponse]]:
-    """Auth + mapping of service errors to JSON answers with Russian text."""
-
-    async def wrapped(request: web.Request) -> web.StreamResponse:
-        ctx = request.app[key]
-        _authorize(request, ctx)
-        try:
-            return await fn(request, ctx)
-        except sessions.ActiveSessionExists as exc:
-            return _error(409, "Уже идёт другая рабочая сессия.", session_id=exc.session_id)
-        except sessions.SettingsMissing as exc:
-            return _error(409, "Для этого режима не заданы длительности.", missing=list(exc.fields))
-        except sessions.CriteriaCheckRequired:
-            return _error(409, "Сначала сверь результат с критерием готовности.", criteria=True)
-        except sessions.SessionError as exc:
-            return _error(409, str(exc))
-        except task_service.TaskNotFound:
-            return _error(404, "Задача не найдена.")
-        except actions.ActionError as exc:
-            return _error(400, str(exc))
-        except LookupError:
-            return _error(404, "Не найдено.")
-        except ValueError as exc:
-            return _error(400, str(exc))
-
-    return wrapped
 
 
 # --------------------------------------------------------------------------- reads
@@ -171,7 +68,7 @@ async def task_tree(request: web.Request, ctx: AppContext) -> web.Response:
 
 
 async def week(request: web.Request, ctx: AppContext) -> web.Response:
-    start = _date(request.query.get("start"), "start")
+    start = H.parse_date(request.query.get("start"), "start")
     async with ctx.db.transaction() as s:
         payload = await views.week_payload(s, ctx, start)
     return web.json_response(payload)
@@ -211,46 +108,53 @@ async def report(request: web.Request, ctx: AppContext) -> web.Response:
 
 
 async def task_create(request: web.Request, ctx: AppContext) -> web.Response:
-    body = await _body(request)
+    body = await H.body(request)
     title = " ".join(str(body.get("title") or "").split())[:MAX_TITLE]
     op_key = str(body.get("op_key") or "")
     if not title:
         raise ValueError("Нужно название задачи.")
     if not 8 <= len(op_key) <= 64:
         raise ValueError("Нужен op_key запроса.")
-    estimate = _minutes(body.get("estimate_minutes"), "estimate_minutes", high=24 * 60)
+    estimate = H.parse_minutes(body.get("estimate_minutes"), "estimate_minutes", high=24 * 60)
     parent_id = body.get("parent_id")
+    planned_date = H.parse_date(body.get("planned_date"), "planned_date")
+    planned_time = H.parse_hhmm(body.get("planned_time"), "planned_time")
     action: CreateTask | CreateSubtasks
-    if parent_id is not None:
-        action = CreateSubtasks(
-            parent_id=int(parent_id),
-            subtasks=[SubtaskDraft(title=title, estimate_minutes=estimate or None)],
-        )
-    else:
-        action = CreateTask(
-            task=TaskDraft(
-                title=title,
-                planned_date=_date(body.get("planned_date"), "planned_date"),
-                due_date=_date(body.get("due_date"), "due_date"),
-                estimate_minutes=estimate or None,
-            )
-        )
     async with ctx.db.transaction() as s:
+        if parent_id is not None:
+            action = CreateSubtasks(
+                parent_id=int(parent_id),
+                subtasks=[SubtaskDraft(title=title, estimate_minutes=estimate or None)],
+            )
+        else:
+            start = None
+            if planned_time is not None:
+                day = planned_date or await task_service.local_today(s, ctx)
+                start = resolve_local(day, planned_time, await task_service.owner_tz(s))
+            action = CreateTask(
+                task=TaskDraft(
+                    title=title,
+                    planned_date=None if start is not None else planned_date,
+                    planned_start_at=start,
+                    due_date=H.parse_date(body.get("due_date"), "due_date"),
+                    estimate_minutes=estimate or None,
+                )
+            )
         res = await actions.execute(s, ctx, action, origin=Actor.USER, op_key=f"miniapp:{op_key}")
     await actions.run_after_commit(res.after_commit)
     if res.status != actions.ExecStatus.APPLIED:
-        return _error(400, res.error or "Не удалось создать задачу.")
+        return H.error(400, res.error or "Не удалось создать задачу.")
     return web.json_response({"status": "created", "result": res.result, "repeated": res.repeated})
 
 
 async def task_done(request: web.Request, ctx: AppContext) -> web.Response:
-    task_id = _int_id(request, "task_id")
-    body = await _body(request)
+    task_id = H.int_id(request, "task_id")
+    body = await H.body(request)
     confirmed = body.get("criteria_confirmed") is True
     async with ctx.db.transaction() as s:
         task = await task_service.require_task(s, task_id)
         if task_service.requires_criteria_check(task) and not confirmed:
-            return _error(
+            return H.error(
                 409,
                 "Сверь результат с критерием готовности.",
                 criteria=True,
@@ -264,8 +168,8 @@ async def task_done(request: web.Request, ctx: AppContext) -> web.Response:
 
 
 async def task_progress(request: web.Request, ctx: AppContext) -> web.Response:
-    task_id = _int_id(request, "task_id")
-    body = await _body(request)
+    task_id = H.int_id(request, "task_id")
+    body = await H.body(request)
     note = " ".join(str(body.get("note") or "").split())[:1000] or None
     async with ctx.db.transaction() as s:
         task = await task_service.record_progress(s, ctx, task_id, actor=Actor.USER, note=note)
@@ -277,8 +181,8 @@ async def task_progress(request: web.Request, ctx: AppContext) -> web.Response:
 
 
 async def habit_mark(request: web.Request, ctx: AppContext) -> web.Response:
-    habit_id = _int_id(request, "habit_id")
-    body = await _body(request)
+    habit_id = H.int_id(request, "habit_id")
+    body = await H.body(request)
     status = str(body.get("status") or "")
     allowed = {
         HabitOccurrenceStatus.DONE,
@@ -297,7 +201,7 @@ async def habit_mark(request: web.Request, ctx: AppContext) -> web.Response:
 
 async def session_action(request: web.Request, ctx: AppContext) -> web.Response:
     what = request.match_info["action"]
-    body = await _body(request)
+    body = await H.body(request)
     async with ctx.db.transaction() as s:
         if what == "start":
             mode = SessionMode(str(body.get("mode") or SessionMode.FREE))
@@ -345,9 +249,9 @@ def _settings_changes(body: dict[str, Any], ctx: AppContext) -> dict[str, Any]:
                 raise ValueError("Неизвестный часовой пояс.") from exc
             changes[key] = str(value)
         elif key in views.SETTINGS_TIMES:
-            changes[key] = _hhmm(value, key)
+            changes[key] = H.parse_hhmm(value, key)
         elif key in views.SETTINGS_MINUTES:
-            changes[key] = _minutes(value, key)
+            changes[key] = H.parse_minutes(value, key)
         elif key == "notifications_enabled":
             if not isinstance(value, bool):
                 raise ValueError("notifications_enabled: да или нет.")
@@ -363,7 +267,10 @@ def _settings_changes(body: dict[str, Any], ctx: AppContext) -> dict[str, Any]:
             for w in value:
                 if not isinstance(w, dict):
                     raise ValueError("quiet_hours: окно {start, end}.")
-                start, end = _hhmm(w.get("start"), "start"), _hhmm(w.get("end"), "end")
+                start, end = (
+                    H.parse_hhmm(w.get("start"), "start"),
+                    H.parse_hhmm(w.get("end"), "end"),
+                )
                 if start is None or end is None or start == end:
                     raise ValueError("Тихие часы: нужно начало и конец.")
                 window: dict[str, Any] = {
@@ -375,8 +282,26 @@ def _settings_changes(body: dict[str, Any], ctx: AppContext) -> dict[str, Any]:
                     window["days"] = sorted({int(d) for d in days if 0 <= int(d) <= 6})
                 windows.append(window)
             changes[key] = windows
+        elif key == "style_preset":
+            if value not in views.STYLE_PRESETS:
+                raise ValueError("Неизвестный стиль общения.")
+            changes[key] = value
+        elif key in ("strictness", "humor", "verbosity"):
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 4:
+                raise ValueError(f"{key}: от 0 до 4.")
+            changes[key] = value
+        elif key == "profanity_allowed":
+            if not isinstance(value, bool):
+                raise ValueError("profanity_allowed: да или нет.")
+            changes[key] = value
+        elif key == "memory_settings":
+            if not isinstance(value, dict) or not set(value) <= set(views.MEMORY_FLAGS):
+                raise ValueError("memory_settings: enabled, hypotheses, use_history.")
+            if not all(isinstance(v, bool) for v in value.values()):
+                raise ValueError("memory_settings: да или нет.")
+            changes[key] = value
         elif key == "pause_hours":
-            hours = _minutes(value, key, high=MAX_PAUSE_HOURS) or 0
+            hours = H.parse_minutes(value, key, high=MAX_PAUSE_HOURS) or 0
             changes["pause_until"] = ctx.clock.now() + timedelta(hours=hours) if hours > 0 else None
         else:
             raise ValueError(f"Эту настройку нельзя менять из Mini App: {key}")
@@ -390,7 +315,7 @@ async def settings_get(request: web.Request, ctx: AppContext) -> web.Response:
 
 
 async def settings_post(request: web.Request, ctx: AppContext) -> web.Response:
-    changes = _settings_changes(await _body(request), ctx)
+    changes = _settings_changes(await H.body(request), ctx)
     async with ctx.db.transaction() as s:
         if await get_profile(s) is None:
             raise LookupError("profile")
@@ -412,17 +337,20 @@ def add_routes(app: web.Application, key: CtxKey) -> None:
     r = app.router
     r.add_get("/miniapp", page)
     r.add_get("/miniapp/", page)
-    r.add_get("/miniapp/api/day", _route(key, day))
-    r.add_get("/miniapp/api/tasks", _route(key, task_tree))
-    r.add_post("/miniapp/api/tasks", _route(key, task_create))
-    r.add_post("/miniapp/api/tasks/{task_id}/done", _route(key, task_done))
-    r.add_post("/miniapp/api/tasks/{task_id}/progress", _route(key, task_progress))
-    r.add_get("/miniapp/api/week", _route(key, week))
-    r.add_get("/miniapp/api/goals", _route(key, goal_list))
-    r.add_get("/miniapp/api/habits", _route(key, habit_list))
-    r.add_post("/miniapp/api/habits/{habit_id}/mark", _route(key, habit_mark))
-    r.add_get("/miniapp/api/session", _route(key, session_get))
-    r.add_post("/miniapp/api/session/{action}", _route(key, session_action))
-    r.add_get("/miniapp/api/report", _route(key, report))
-    r.add_get("/miniapp/api/settings", _route(key, settings_get))
-    r.add_post("/miniapp/api/settings", _route(key, settings_post))
+    r.add_get("/miniapp/api/day", H.route(key, day))
+    r.add_get("/miniapp/api/tasks", H.route(key, task_tree))
+    r.add_post("/miniapp/api/tasks", H.route(key, task_create))
+    r.add_post("/miniapp/api/tasks/{task_id}/done", H.route(key, task_done))
+    r.add_post("/miniapp/api/tasks/{task_id}/progress", H.route(key, task_progress))
+    r.add_get("/miniapp/api/week", H.route(key, week))
+    r.add_get("/miniapp/api/goals", H.route(key, goal_list))
+    r.add_get("/miniapp/api/habits", H.route(key, habit_list))
+    r.add_post("/miniapp/api/habits/{habit_id}/mark", H.route(key, habit_mark))
+    r.add_get("/miniapp/api/session", H.route(key, session_get))
+    r.add_post("/miniapp/api/session/{action}", H.route(key, session_action))
+    r.add_get("/miniapp/api/report", H.route(key, report))
+    r.add_get("/miniapp/api/settings", H.route(key, settings_get))
+    r.add_post("/miniapp/api/settings", H.route(key, settings_post))
+    from procbot.miniapp.manage import add_manage_routes
+
+    add_manage_routes(app, key)
