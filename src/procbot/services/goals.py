@@ -936,7 +936,11 @@ async def run_goal_review(
     fallback_head = "ИИ сейчас недоступен — разбор только по цифрам, без предложений изменений."
     if ctx.ai is None:
         return ReviewOutcome(text=_fallback_text(fallback_head, observations))
+    from procbot.ai.persona import load_persona
+
+    persona = await load_persona(ctx)
     prompt = Prompt(
+        persona=persona,
         instruction=(
             "Сделай критический разбор целей: реалистичны ли сроки, соответствует ли "
             "ежедневная занятость целям, что стоит пересмотреть (формулировку, результат, "

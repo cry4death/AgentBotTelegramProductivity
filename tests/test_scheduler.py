@@ -261,3 +261,33 @@ async def test_run_forever_stops(ctx, clock):
     await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=2)
+
+
+async def test_job_rhythm_survives_a_restart(ctx, clock):
+    """The last run is saved: after a restart a job runs when its interval is up,
+    not a full interval after the restart (and not again right away)."""
+    calls: list[datetime] = []
+
+    async def job(_ctx):
+        calls.append(clock.now())
+
+    register_job(ctx, PeriodicJob(name="hourly", interval_seconds=3600, run=job))
+    first = Scheduler(ctx)
+    await first.tick()  # no history: waits one interval, as before
+    assert calls == []
+    clock.advance(seconds=3600)
+    await first.tick()
+    assert calls == [NOW + timedelta(hours=1)]
+
+    clock.advance(minutes=20)  # restart 20 minutes after the run
+    second = Scheduler(ctx)
+    await second.tick()
+    assert len(calls) == 1  # ran recently: no repeat on start
+    clock.advance(minutes=40)
+    await second.tick()
+    assert calls[-1] == NOW + timedelta(hours=2)  # on its original rhythm
+
+    clock.advance(hours=5)  # long downtime: the overdue job runs on the first tick
+    third = Scheduler(ctx)
+    await third.tick()
+    assert calls[-1] == NOW + timedelta(hours=7) and len(calls) == 3

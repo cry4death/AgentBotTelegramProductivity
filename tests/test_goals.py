@@ -12,8 +12,9 @@ from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import func, select
 
 from procbot.ai.adapters.fake import FakeError
+from procbot.ai.persona import GUARDRAILS
 from procbot.ai.testing import make_fake_gateway
-from procbot.db.models import Goal, Milestone, PendingApproval, Task, WorkSession
+from procbot.db.models import Goal, Milestone, OwnerProfile, PendingApproval, Task, WorkSession
 from procbot.domain.actions import ChangeGoal, ChangeMilestone, CreateGoal, TaskDraft
 from procbot.domain.enums import Actor, AIErrorKind, ApprovalStatus
 from procbot.services import actions, approvals
@@ -401,3 +402,17 @@ async def test_projects_create_and_attach_to_goal(wired, dp, bot, tg) -> None:
     async with ctx.db.transaction() as s:
         projects = await gs.goal_projects(s, g.id)
     assert [p.title for p in projects] == ["Лендинг"]
+
+
+async def test_goal_review_uses_the_bot_character(wired) -> None:
+    ctx = wired
+    g, _ = await _review_fixture(ctx)
+    async with ctx.db.transaction() as s:
+        prof = await s.get(OwnerProfile, 1)
+        assert prof is not None
+        prof.style_preset = "coach"
+    gw = await make_fake_gateway(ctx, {"goal_review": [{"summary": "Ок."}]})
+    await gs.run_goal_review(ctx, op_prefix="u9:goalrev", goal_id=g.id)
+    system = gw.fake.calls_for("goal_review")[0].system
+    assert "Стиль общения" in system and "Строгий тренер" in system
+    assert GUARDRAILS[0] in system
