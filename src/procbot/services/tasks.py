@@ -32,7 +32,16 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from procbot.context import AppContext
-from procbot.db.models import Goal, Milestone, PendingApproval, Project, Task, TaskEvent
+from procbot.db.models import (
+    Category,
+    Context,
+    Goal,
+    Milestone,
+    PendingApproval,
+    Project,
+    Task,
+    TaskEvent,
+)
 from procbot.domain.actions import (
     ActionType,
     AdjustReminders,
@@ -59,6 +68,7 @@ from procbot.services import actions, approvals
 from procbot.services.actions import ActionError, ApplyOutcome
 from procbot.services.audit import audit
 from procbot.services.profile import get_profile
+from procbot.services.recurrence import RecurrenceError, next_date, parse_rule
 from procbot.services.reminders import sync_task_reminders
 from procbot.services.structure import get_or_create_category, get_or_create_context
 from procbot.timeutil import fmt_local, local_date, local_day_bounds, resolve_local, to_local
@@ -250,6 +260,7 @@ async def create_task(
     *,
     actor: Actor,
     reason: str | None = None,
+    event_payload: dict[str, Any] | None = None,
 ) -> Task:
     """Create a task (or a subtask when draft.parent_id is set)."""
     now = ctx.clock.now()
@@ -299,7 +310,7 @@ async def create_task(
         done_criteria=draft.done_criteria,
         verification=verification,
         is_backlog=draft.is_backlog and planned_date is None,
-        recurrence=dict(draft.recurrence) if draft.recurrence else None,
+        recurrence=_checked_rule(draft.recurrence) if draft.parent_id is None else None,
         sort_order=await _next_sort_order(session, draft.parent_id),
         postpone_count=0,
         reminder_overrides={},
@@ -317,10 +328,17 @@ async def create_task(
         TaskEventType.CREATED,
         actor,
         reason=reason,
-        payload={"task": snapshot(task)},
+        payload={"task": snapshot(task), **(event_payload or {})},
     )
     await sync_task_reminders(session, ctx, task)
     return task
+
+
+def _checked_rule(raw: Any) -> dict[str, Any] | None:
+    try:
+        return parse_rule(raw)
+    except RecurrenceError as exc:
+        raise TaskError(str(exc)) from exc
 
 
 def _check_parent_open(parent: Task) -> None:
@@ -470,6 +488,7 @@ EDITABLE_FIELDS: frozenset[str] = frozenset(
         "goal_id",
         "milestone_id",
         "due_is_hard",
+        "recurrence",
     }
 )
 
@@ -521,6 +540,10 @@ async def update_task(
             put("done_criteria", text)
             if text and not had and "verification" not in changes:
                 put("verification", "criteria")
+        elif key == "recurrence":
+            if task.parent_id is not None and value:
+                raise TaskError("Повтор задаётся только у основной задачи.")
+            put("recurrence", _checked_rule(value))
         elif key == "estimate_minutes":
             put("estimate_minutes", value)
             put("estimate_source", _estimate_source(actor) if value else None)
@@ -874,7 +897,100 @@ async def complete_task(
         payload["note"] = note
     await _event(session, ctx, task, TaskEventType.COMPLETED, actor, payload=payload)
     await _touch(session, ctx, task, sync=True)
+    await spawn_next_occurrence(session, ctx, task)
     return task
+
+
+async def undo_complete(
+    session: AsyncSession, ctx: AppContext, task_id: int, *, actor: Actor
+) -> Task:
+    """ "Отменить" right after "Готово": reopen the task and drop the next copy of
+    a recurring task if nobody touched it yet. No-op when the task is not done."""
+    task = await require_task(session, task_id)
+    if task.status != TaskStatus.DONE:
+        return task
+    task = await reopen_task(session, ctx, task_id, actor=actor, reason="отмена «Готово»")
+    nxt = await next_occurrence_of(session, task_id)
+    if nxt is not None and nxt.status == TaskStatus.TODO:
+        events = await task_events(session, nxt.id)
+        if all(e.event_type == str(TaskEventType.CREATED) for e in events):
+            await delete_task(session, ctx, nxt.id, actor=actor, reason="отмена «Готово»")
+    return task
+
+
+async def next_occurrence_of(session: AsyncSession, task_id: int) -> Task | None:
+    """The copy created when this recurring task was done (if any)."""
+    row = (
+        await session.execute(
+            select(TaskEvent.task_id)
+            .where(
+                TaskEvent.event_type == str(TaskEventType.CREATED),
+                TaskEvent.payload["recurred_from"].as_integer() == task_id,
+            )
+            .limit(1)
+        )
+    ).scalar()
+    return await session.get(Task, row) if row is not None else None
+
+
+async def spawn_next_occurrence(session: AsyncSession, ctx: AppContext, task: Task) -> Task | None:
+    """Done recurring task -> its next copy on the next matching day. Code only
+    (the owner set the rule). Once per task: reopening and finishing it again,
+    or a repeated press, never makes a second copy."""
+    if task.parent_id is not None or task.status != TaskStatus.DONE:
+        return None
+    try:
+        rule = parse_rule(task.recurrence)
+    except RecurrenceError:
+        return None
+    if rule is None or await next_occurrence_of(session, task.id) is not None:
+        return None
+    tz = await owner_tz(session)
+    today = local_date(ctx.clock.now(), tz)
+    plan_day = _plan_day(task, tz)
+    due_day = _due_day(task, tz)
+    base = plan_day or due_day or today
+    nxt = next_date(rule, base=base, after=max(base, today))
+    shift = nxt - base
+    planned_start = None
+    planned_date = None
+    if task.planned_start_at is not None:
+        planned_start = local_time_on(nxt, to_local(task.planned_start_at, tz).time(), tz)
+    elif plan_day is not None or due_day is None:
+        planned_date = nxt
+    due_at = None
+    if task.due_at is not None and due_day is not None:
+        due_at = local_time_on(due_day + shift, to_local(task.due_at, tz).time(), tz)
+    category = await session.get(Category, task.category_id) if task.category_id else None
+    context = await session.get(Context, task.context_id) if task.context_id else None
+    draft = TaskDraft(
+        title=task.title,
+        description=task.description,
+        due_at=due_at,
+        due_date=task.due_date + shift if task.due_date is not None else None,
+        due_is_hard=task.due_is_hard,
+        planned_start_at=planned_start,
+        planned_date=planned_date,
+        estimate_minutes=task.estimate_minutes,
+        priority=task.priority,
+        importance=task.importance,
+        done_criteria=task.done_criteria,
+        verification="criteria" if task.verification == "criteria" else "button",
+        goal_id=task.goal_id,
+        project_id=task.project_id,
+        milestone_id=task.milestone_id,
+        category=category.name if category is not None else None,
+        context=context.name if context is not None else None,
+        recurrence=rule,
+    )
+    return await create_task(
+        session,
+        ctx,
+        draft,
+        actor=Actor.SYSTEM,
+        reason="повторяющаяся задача",
+        event_payload={"recurred_from": task.id},
+    )
 
 
 async def record_progress(

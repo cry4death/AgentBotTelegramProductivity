@@ -238,6 +238,11 @@ async def run_bot(
         ctx.ai = await build_gateway(ctx)  # missing/invalid ai.yaml -> works without AI
         await prepare(ctx)
 
+        from procbot.telegram.setup import configure_bot_ui
+
+        ui = await configure_bot_ui(bot, env)  # failures are logged, never fatal
+        log.info("bot ui configured", extra={"status": ",".join(ui) or "none"})
+
         from procbot.services.scheduler import Scheduler
 
         dp = build_dispatcher(ctx)  # CorrelationMiddleware is installed first inside
