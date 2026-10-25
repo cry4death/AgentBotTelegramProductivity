@@ -29,7 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from procbot.context import AppContext
-from procbot.db.models import ReminderSchedule
+from procbot.db.models import ReminderSchedule, Setting
 from procbot.domain.enums import MessageCategory, ReminderState
 from procbot.services import gate, leases
 from procbot.services.jobs import PeriodicJob, registered_jobs
@@ -334,21 +334,63 @@ def stuck_sending_threshold(ctx: AppContext) -> timedelta:
     return timedelta(seconds=max(ctx.config.scheduler.lease_seconds, 60))
 
 
+# Settings key prefix for the last run of a periodic job (owned by the scheduler).
+JOB_LAST_RUN_PREFIX = "job_last_run:"
+
+
+async def load_job_last_runs(ctx: AppContext) -> dict[str, datetime]:
+    """Last finished run per job name, as saved by earlier processes."""
+    async with ctx.db.transaction() as s:
+        rows = (
+            await s.execute(select(Setting).where(Setting.key.startswith(JOB_LAST_RUN_PREFIX)))
+        ).scalars()
+        out: dict[str, datetime] = {}
+        for row in rows:
+            try:
+                ts = datetime.fromisoformat(str(row.value))
+            except ValueError:
+                continue
+            if ts.tzinfo is not None:
+                out[row.key.removeprefix(JOB_LAST_RUN_PREFIX)] = ts
+        return out
+
+
+async def save_job_last_run(ctx: AppContext, name: str, at: datetime) -> None:
+    key = JOB_LAST_RUN_PREFIX + name
+    async with ctx.db.transaction() as s:
+        row = await s.get(Setting, key)
+        if row is None:
+            s.add(Setting(key=key, value=at.isoformat(), updated_at=at))
+        else:
+            row.value = at.isoformat()
+            row.updated_at = at
+
+
 class Scheduler:
-    """One loop per process. Job "last run" times live in memory (jobs are
-    idempotent by contract); a lease per job name prevents parallel runs."""
+    """One loop per process. The last run of each job is saved in `settings`, so
+    a restart keeps the job's rhythm: a job that was due during the downtime runs
+    on the first tick, one that ran recently waits for the rest of its interval.
+    Jobs are idempotent by contract; a lease per job name prevents parallel runs."""
 
     def __init__(self, ctx: AppContext) -> None:
         self.ctx = ctx
         self._next_run: dict[str, datetime] = {}
+        self._last_runs: dict[str, datetime] | None = None
 
     def _due_jobs(self, now: datetime) -> list[PeriodicJob]:
+        last_runs = self._last_runs or {}
         due: list[PeriodicJob] = []
         for job in registered_jobs(self.ctx):
             nxt = self._next_run.get(job.name)
             if nxt is None:
+                last = last_runs.get(job.name)
                 if job.run_on_start:
                     due.append(job)
+                elif last is not None:
+                    nxt = last + timedelta(seconds=job.interval_seconds)
+                    self._next_run[job.name] = nxt
+                    if now >= nxt:
+                        due.append(job)
                 else:
                     self._next_run[job.name] = now + timedelta(seconds=job.interval_seconds)
             elif now >= nxt:
@@ -358,6 +400,8 @@ class Scheduler:
     async def run_jobs(self) -> TickReport:
         report = TickReport()
         now = self.ctx.clock.now()
+        if self._last_runs is None:
+            self._last_runs = await load_job_last_runs(self.ctx)
         for job in self._due_jobs(now):
             name = f"job:{job.name}"
             if not await leases.acquire(self.ctx, name):
@@ -370,6 +414,10 @@ class Scheduler:
                 report.jobs_failed.append(job.name)
             finally:
                 self._next_run[job.name] = now + timedelta(seconds=job.interval_seconds)
+                try:
+                    await save_job_last_run(self.ctx, job.name, now)
+                except Exception:
+                    log.exception("saving last run of job %s failed", job.name)
                 await leases.release(self.ctx, name)
         return report
 
